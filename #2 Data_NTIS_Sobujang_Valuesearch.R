@@ -347,6 +347,8 @@ merged_data %>%
 
 #===============================================================================
 # 수출 여부를 0, 1로 표기 
+# 수출, 개발비용 N/A 이면 0으로 처리.
+
 
 # 전체 출력
 merged_data %>%
@@ -370,7 +372,15 @@ merged_data <- merged_data %>%
     exportamt2021 = ifelse(is.na(as.numeric(`2021/Annual S21195.[수출]`)), 0, as.numeric(`2021/Annual S21195.[수출]`)),
     exportamt2022 = ifelse(is.na(as.numeric(`2022/Annual S21195.[수출]`)), 0, as.numeric(`2022/Annual S21195.[수출]`)),
     exportamt2023 = ifelse(is.na(as.numeric(`2023/Annual S21195.[수출]`)), 0, as.numeric(`2023/Annual S21195.[수출]`)),
-    exportamt2024 = ifelse(is.na(as.numeric(`2024/Annual S21195.[수출]`)), 0, as.numeric(`2024/Annual S21195.[수출]`))
+    exportamt2024 = ifelse(is.na(as.numeric(`2024/Annual S21195.[수출]`)), 0, as.numeric(`2024/Annual S21195.[수출]`)),
+    
+    # ── 연구개발비용계 (NA → 0 처리) ──
+    rdcost2019 = ifelse(is.na(as.numeric(`2019/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2019/Annual 692084.연구개발비용-연구개발비용계`)),
+    rdcost2020 = ifelse(is.na(as.numeric(`2020/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2020/Annual 692084.연구개발비용-연구개발비용계`)),
+    rdcost2021 = ifelse(is.na(as.numeric(`2021/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2021/Annual 692084.연구개발비용-연구개발비용계`)),
+    rdcost2022 = ifelse(is.na(as.numeric(`2022/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2022/Annual 692084.연구개발비용-연구개발비용계`)),
+    rdcost2023 = ifelse(is.na(as.numeric(`2023/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2023/Annual 692084.연구개발비용-연구개발비용계`)),
+    rdcost2024 = ifelse(is.na(as.numeric(`2024/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2024/Annual 692084.연구개발비용-연구개발비용계`))
   )
 
 # 확인
@@ -408,14 +418,6 @@ merged_data %>%
     avg_labor_prod2023 = mean(labor_prod2023, na.rm = TRUE),
     avg_labor_prod2024 = mean(labor_prod2024, na.rm = TRUE)
   )
-
-
-#===============================================================================
-# R&D 비용을 합산 하라.
-# 692080 ~ 692087
-
-
-
 
 
 
