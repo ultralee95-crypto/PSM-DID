@@ -28,7 +28,7 @@ library(writexl)
 library(MatchIt)
 library(cobalt)
 
-setwd("~/Downloads/Venture")
+setwd("/Users/ultra/PSM-DID")
 getwd()
 # ============================================================
 # 한글 폰트 설정
