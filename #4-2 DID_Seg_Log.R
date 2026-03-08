@@ -60,7 +60,7 @@ panel_list <- lapply(1:nrow(matched), function(i) {
     fund_count  = to_num(row$fund2020) + to_num(row$fund2021) + to_num(row$fund2022),
     total_gfund = to_num(row$gfundvol2020) + to_num(row$gfundvol2021) + to_num(row$gfundvol2022),
     year        = years,
-    emp       = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S05000.종업원수")]])),
+    #emp       = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S05000.종업원수")]])),
     asset     = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S15000.자산총계")]])),
     debt      = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18000.부채총계")]])),
     equity    = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18900.자본총계")]])),
@@ -68,6 +68,9 @@ panel_list <- lapply(1:nrow(matched), function(i) {
     sales     = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S21100.총매출액")]])),
     op_profit = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S25000.영업이익(손실)")]])),
     patent    = sapply(years, function(y) to_num(row[[paste0("p", y)]])),
+    # ↓ 추가 (#2에서 생성된 연도별 변수)
+    export    = sapply(years, function(y) to_num(row[[paste0("exportamt", y)]])),
+    rdcost    = sapply(years, function(y) to_num(row[[paste0("rdcost", y)]])),
     stringsAsFactors = FALSE
   )
 })
@@ -85,13 +88,16 @@ cat("\n패널:", nrow(panel), "obs,", length(unique(panel$firm_id)), "firms\n")
 panel <- panel %>%
   mutate(
     log_patent   = log1p(pmax(patent,   0, na.rm = TRUE)),   # ln(특허+1)
-    log_emp_raw   = ifelse(!is.na(emp)   & emp   > 0, log(emp),   NA),   # ln(종업원+1)
+    #log_emp_raw   = ifelse(!is.na(emp)   & emp   > 0, log(emp),   NA),   # ln(종업원+1)
     log_asset_raw = ifelse(!is.na(asset) & asset > 0, log(asset), NA),   # ln(자산총계+1)
     log_debt     = log1p(pmax(debt,     0, na.rm = TRUE)),   # ln(부채총계+1)
     log_equity   = log_signed(equity),                        # ±ln(자본총계+1)
     log_capital  = log1p(pmax(capital,  0, na.rm = TRUE)),   # ln(자본금+1)
     log_sales     = ifelse(!is.na(sales) & sales > 0, log(sales), NA), # ln(매출액+1)
-    log_opprofit = log_signed(op_profit)                      # ±ln(영업이익+1)
+    log_opprofit = log_signed(op_profit),                      # ±ln(영업이익+1)
+    # ↓ 추가 (NA→0 처리됨이므로 log1p 사용)
+    log_export    = log1p(pmax(export, 0, na.rm = TRUE)),  # ln(수출금액+1)
+    log_rdcost    = log1p(pmax(rdcost, 0, na.rm = TRUE))   # ln(연구개발비+1)
   )
 
 # ==============================================================================
@@ -176,7 +182,7 @@ for (v in ratio_vars) {
 }
 
 # ── 통제변수 (log 변환) ──
-panel$log_emp   <- panel$log_emp_raw    # ln(종업원+1)
+#panel$log_emp   <- panel$log_emp_raw    # ln(종업원+1)
 panel$log_asset <- panel$log_asset_raw  # ln(자산총계+1)
 panel$leverage  <- panel$debt / ifelse(panel$asset == 0, NA, panel$asset)  # 부채비율 (통제)
 
