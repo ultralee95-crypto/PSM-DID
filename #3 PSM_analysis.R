@@ -127,36 +127,7 @@ analysis_data %>%
   count(na_count) %>%
   mutate(pct = n / sum(n) * 100)
 
-# 최소 4개년 이상 데이터 있는 기업만 선형 보간
-#analysis_data_imputed <- analysis_data %>%
-#  filter(na_count <= 2) %>%  # 최소 4개년 데이터 보유
-#  mutate(
-# 선형 보간
-#    emp2020 = ifelse(is.na(emp2020) & !is.na(emp2019) & !is.na(emp2021), 
-#                     (emp2019 + emp2021) / 2, emp2020),
-#    emp2021 = ifelse(is.na(emp2021) & !is.na(emp2020) & !is.na(emp2022), 
-#                     (emp2020 + emp2022) / 2, emp2021),
-#    emp2022 = ifelse(is.na(emp2022) & !is.na(emp2021) & !is.na(emp2023), 
-#                     (emp2021 + emp2023) / 2, emp2022),
-#    emp2023 = ifelse(is.na(emp2023) & !is.na(emp2022) & !is.na(emp2024), 
-#                     (emp2022 + emp2024) / 2, emp2023),
-# 끝점: 인접값 사용
-#    emp2019 = ifelse(is.na(emp2019) & !is.na(emp2020), emp2020, emp2019),
-#    emp2024 = ifelse(is.na(emp2024) & !is.na(emp2023), emp2023, emp2024)
-#  )
-
-#cat("보간 후 기업 수:", nrow(analysis_data_imputed), "\n")
-
 #===============================================================================
-
-# 자본총계 음수인 기업 확인
-#analysis_data %>%
-#  filter(자본총 < 0) %>%
-#  select(`691005.업체명`, 자본총, 자산, 부채, 매출, group) %>%
-#  arrange(자본총)
-
-
-
 # 변환 전 결측치 확인하여 데이터 확인 함.
 analysis_data %>%
   summarise(
