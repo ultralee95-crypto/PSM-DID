@@ -20,11 +20,12 @@ for (pkg in packages) {
 }
 
 select <- dplyr::select
+lag    <- dplyr::lag
 
 setwd("/Users/ultra/PSM-DID")
 getwd()
 
-matched <- read_excel("matched_dataset_patent.xlsx", col_types = "text")
+matched <- read_excel("matched_dataset_segPSM.xlsx", col_types = "text")
 
 cat("=== 데이터 확인 ===\n")
 cat("행수:", nrow(matched), "\n")
@@ -59,7 +60,7 @@ panel_list <- lapply(1:nrow(matched), function(i) {
     fund_count  = to_num(row$fund2020) + to_num(row$fund2021) + to_num(row$fund2022),
     total_gfund = to_num(row$gfundvol2020) + to_num(row$gfundvol2021) + to_num(row$gfundvol2022),
     year        = years,
-    emp       = sapply(years, function(y) to_num(row[[paste0("emp", y)]])),
+    emp       = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S05000.종업원수")]])),
     asset     = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S15000.자산총계")]])),
     debt      = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18000.부채총계")]])),
     equity    = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18900.자본총계")]])),
@@ -84,12 +85,12 @@ cat("\n패널:", nrow(panel), "obs,", length(unique(panel$firm_id)), "firms\n")
 panel <- panel %>%
   mutate(
     log_patent   = log1p(pmax(patent,   0, na.rm = TRUE)),   # ln(특허+1)
-    log_emp_raw  = log1p(pmax(emp,      0, na.rm = TRUE)),   # ln(종업원+1)
-    log_asset_raw= log1p(pmax(asset,    0, na.rm = TRUE)),   # ln(자산총계+1)
+    log_emp_raw   = ifelse(!is.na(emp)   & emp   > 0, log(emp),   NA),   # ln(종업원+1)
+    log_asset_raw = ifelse(!is.na(asset) & asset > 0, log(asset), NA),   # ln(자산총계+1)
     log_debt     = log1p(pmax(debt,     0, na.rm = TRUE)),   # ln(부채총계+1)
     log_equity   = log_signed(equity),                        # ±ln(자본총계+1)
     log_capital  = log1p(pmax(capital,  0, na.rm = TRUE)),   # ln(자본금+1)
-    log_sales    = log1p(pmax(sales,    0, na.rm = TRUE)),   # ln(매출액+1)
+    log_sales     = ifelse(!is.na(sales) & sales > 0, log(sales), NA), # ln(매출액+1)
     log_opprofit = log_signed(op_profit)                      # ±ln(영업이익+1)
   )
 
@@ -220,7 +221,7 @@ dv_info <- data.frame(
              "수익성", "수익성", "수익성",
              "안정성", "안정성",
              "활동성", "활동성"),
-  method = c("fe",  "ols", "ols", "ols",   # ← innov_patent: poisson → fe
+  method = c("fe",  "fe", "fe", "fe",   # ← innov_patent: poisson → fe
              "fe",  "fe",  "fe",
              "fe",  "fe",
              "fe",  "fe"),
