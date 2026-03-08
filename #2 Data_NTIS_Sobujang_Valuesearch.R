@@ -14,7 +14,7 @@ library(dplyr)
 library(writexl)
 library(stringr)
 
-setwd("~/Downloads/Venture")
+#setwd("~/Downloads/Venture")
 getwd()
 
 # Valuesearch 기업 데이터 
@@ -362,7 +362,15 @@ merged_data <- merged_data %>%
     export2021 = ifelse(!is.na(`2021/Annual S21195.[수출]`) & `2021/Annual S21195.[수출]` > 0, 1, 0),
     export2022 = ifelse(!is.na(`2022/Annual S21195.[수출]`) & `2022/Annual S21195.[수출]` > 0, 1, 0),
     export2023 = ifelse(!is.na(`2023/Annual S21195.[수출]`) & `2023/Annual S21195.[수출]` > 0, 1, 0),
-    export2024 = ifelse(!is.na(`2024/Annual S21195.[수출]`) & `2024/Annual S21195.[수출]` > 0, 1, 0)
+    export2024 = ifelse(!is.na(`2024/Annual S21195.[수출]`) & `2024/Annual S21195.[수출]` > 0, 1, 0),
+    
+    # ── 수출금액 (NA → 0 처리) ──
+    exportamt2019 = ifelse(is.na(as.numeric(`2019/Annual S21195.[수출]`)), 0, as.numeric(`2019/Annual S21195.[수출]`)),
+    exportamt2020 = ifelse(is.na(as.numeric(`2020/Annual S21195.[수출]`)), 0, as.numeric(`2020/Annual S21195.[수출]`)),
+    exportamt2021 = ifelse(is.na(as.numeric(`2021/Annual S21195.[수출]`)), 0, as.numeric(`2021/Annual S21195.[수출]`)),
+    exportamt2022 = ifelse(is.na(as.numeric(`2022/Annual S21195.[수출]`)), 0, as.numeric(`2022/Annual S21195.[수출]`)),
+    exportamt2023 = ifelse(is.na(as.numeric(`2023/Annual S21195.[수출]`)), 0, as.numeric(`2023/Annual S21195.[수출]`)),
+    exportamt2024 = ifelse(is.na(as.numeric(`2024/Annual S21195.[수출]`)), 0, as.numeric(`2024/Annual S21195.[수출]`))
   )
 
 # 확인
@@ -400,6 +408,16 @@ merged_data %>%
     avg_labor_prod2023 = mean(labor_prod2023, na.rm = TRUE),
     avg_labor_prod2024 = mean(labor_prod2024, na.rm = TRUE)
   )
+
+
+#===============================================================================
+# R&D 비용을 합산 하라.
+# 692080 ~ 692087
+
+
+
+
+
 
 #===============================================================================
 # 결과 저장
