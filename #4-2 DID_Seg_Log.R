@@ -19,7 +19,10 @@ for (pkg in packages) {
   }
 }
 
-setwd("~/Downloads/Venture")
+select <- dplyr::select
+
+setwd("/Users/ultra/PSM-DID")
+getwd()
 
 matched <- read_excel("matched_dataset_patent.xlsx", col_types = "text")
 
