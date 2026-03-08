@@ -57,6 +57,8 @@ cat("=== 데이터 로드 중... ===\n")
 
 # Text로 값을 읽어 와야 number 등으로 변환이 용이 하다. 
 data <- read_excel("sobujang_integrated_with_valuesearch+Patent.xlsx", sheet=1,col_type = "text")
+head(data)
+names(data)
 
 # Treatgroup과 Controlgroup만 필터링
 analysis_data <- data %>%
@@ -93,17 +95,6 @@ analysis_data %>%
     na2024_emp = sum(is.na(as.numeric(`2024/Annual S05000.종업원수`)))
   )
 
-# 전체 행 수 대비 비율
-analysis_data %>%
-  group_by(group) %>%
-  summarise(
-    pct2019 = mean(is.na(as.numeric(`2019/Annual S05000.종업원수`))) * 100,
-    pct2020 = mean(is.na(as.numeric(`2020/Annual S05000.종업원수`))) * 100,
-    pct2021 = mean(is.na(as.numeric(`2021/Annual S05000.종업원수`))) * 100,
-    pct2022 = mean(is.na(as.numeric(`2022/Annual S05000.종업원수`))) * 100,
-    pct2023 = mean(is.na(as.numeric(`2023/Annual S05000.종업원수`))) * 100,
-    pct2024 = mean(is.na(as.numeric(`2024/Annual S05000.종업원수`))) * 100
-  )
 
 # 기업별 결측 패턴 확인
 analysis_data <- analysis_data %>%
@@ -142,7 +133,9 @@ analysis_data %>%
     na_KSIC_표준 = sum(is.na(`KSIC_mid_code`)),
     na_지역 = sum(is.na(`region`)),
     na_노동생산성= sum(is.na(`labor_prod2019`)),
-    na_영업이익= sum(is.na(`2019/Annual S25000.영업이익(손실)`))
+    na_영업이익= sum(is.na(`2019/Annual S25000.영업이익(손실)`)),
+    na_연구개발비 = sum(is.na(`2019/Annual 692084.연구개발비용-연구개발비용계`)),
+    na_수출 = sum(is.na(`2019/Annual S21195.[수출]`))
   )
 
 # 변수 변환 및 처치 변수 생성
@@ -161,6 +154,10 @@ analysis_data <- analysis_data %>%
     영업이익 = to_numeric(`2019/Annual S25000.영업이익(손실)`),
     노동생산성 = to_numeric(`labor_prod2019`),
     
+    연구개발비 = ifelse(is.na(to_numeric(`2019/Annual 692084.연구개발비용-연구개발비용계`)), 0,
+                   to_numeric(`2019/Annual 692084.연구개발비용-연구개발비용계`)),
+    수출금액   = ifelse(is.na(to_numeric(`2019/Annual S21195.[수출]`)), 0,
+                    to_numeric(`2019/Annual S21195.[수출]`)),
     # 처치 변수 (1: Treatgroup, 0: Controlgroup)
     treat = ifelse(group == "Treatgroup", 1, 0),
     
@@ -174,7 +171,9 @@ analysis_data <- analysis_data %>%
     log_업력 = log(업력 + 1),
     log_산업 = log(산업 + 1),
     log_지역 = log(지역 + 1),
-    log_노동생산성 = log(노동생산성 + 1)
+    log_노동생산성 = log(노동생산성 + 1),
+    log_연구개발비 = log(연구개발비 + 1),
+    log_수출       = log(수출금액 + 1)
     # 영업 이익은 음수가 있어 log 치환 안됨.
   )%>%
   filter(!is.na(자산) & !is.na(매출) & !is.na(부채) & !is.na(자본금) & 
@@ -206,7 +205,9 @@ before_stats <- analysis_data %>%
     영업이익_평균 = mean(영업이익, na.rm = TRUE),
     노동생산성_평균 = mean(노동생산성, na.rm = TRUE),
     지역_평균 = mean(지역, na.rm = TRUE),
-    산업_평균 = mean(산업, na.rm = TRUE)
+    산업_평균 = mean(산업, na.rm = TRUE),
+    연구개발비_평균 = mean(연구개발비, na.rm = TRUE),
+    수출금액_평균   = mean(수출금액, na.rm = TRUE)
   )
 
 print(before_stats)
@@ -235,7 +236,11 @@ before_balance <- analysis_data %>%
     지역_SMD = (mean(지역[treat==1], na.rm = TRUE) - mean(지역[treat==0], na.rm = TRUE)) / 
       sqrt((sd(지역[treat==1], na.rm = TRUE)^2 + sd(지역[treat==0], na.rm = TRUE)^2) / 2),
     산업_SMD = (mean(산업[treat==1], na.rm = TRUE) - mean(산업[treat==0], na.rm = TRUE)) / 
-      sqrt((sd(산업[treat==1], na.rm = TRUE)^2 + sd(산업[treat==0], na.rm = TRUE)^2) / 2)
+      sqrt((sd(산업[treat==1], na.rm = TRUE)^2 + sd(산업[treat==0], na.rm = TRUE)^2) / 2),
+    연구개발비_SMD = (mean(log_연구개발비[treat==1], na.rm=TRUE) - mean(log_연구개발비[treat==0], na.rm=TRUE)) /
+      sqrt((sd(log_연구개발비[treat==1], na.rm=TRUE)^2 + sd(log_연구개발비[treat==0], na.rm=TRUE)^2) / 2),
+    수출_SMD = (mean(log_수출[treat==1], na.rm=TRUE) - mean(log_수출[treat==0], na.rm=TRUE)) /
+      sqrt((sd(log_수출[treat==1], na.rm=TRUE)^2 + sd(log_수출[treat==0], na.rm=TRUE)^2) / 2)
   )
 
 cat("\n=== 매칭 전 표준화 차이 (SMD) ===\n")
@@ -248,13 +253,11 @@ print(before_balance)
 
 #names(analysis_data)
 
-
-
 cat("\n=== PSM 수행 중... ===\n")
 
 # 성향점수 모델 (로지스틱 회귀), 표준 산업 분류 추가 
 psm_formula <- treat ~ log_자산 + log_매출 + log_부채 + log_자본금 +  
-  log_종업원수 + log_업력 + factor(산업) + factor(지역)
+  log_종업원수 + log_업력 + factor(산업) + factor(지역) + log_연구개발비 + log_수출
 
 # 로지스틱 회귀 모델 적합
 psm_model <- glm(psm_formula, 
@@ -315,7 +318,9 @@ after_stats <- matched_data %>%
     영업이익_평균 = mean(영업이익, na.rm = TRUE),
     노동생산성_평균 = mean(노동생산성, na.rm = TRUE),
     지역_평균 = mean(지역, na.rm = TRUE),
-    산업_평균 = mean(산업, na.rm = TRUE)
+    산업_평균 = mean(산업, na.rm = TRUE),
+    연구개발비_평균 = mean(연구개발비, na.rm = TRUE),
+    수출금액_평균   = mean(수출금액, na.rm = TRUE)
   )
 
 
@@ -345,7 +350,11 @@ after_balance <- matched_data %>%
     지역_SMD = (mean(지역[treat==1], na.rm = TRUE) - mean(지역[treat==0], na.rm = TRUE)) / 
       sqrt((sd(지역[treat==1], na.rm = TRUE)^2 + sd(지역[treat==0], na.rm = TRUE)^2) / 2),
     산업_SMD = (mean(산업[treat==1], na.rm = TRUE) - mean(산업[treat==0], na.rm = TRUE)) / 
-      sqrt((sd(산업[treat==1], na.rm = TRUE)^2 + sd(산업[treat==0], na.rm = TRUE)^2) / 2)
+      sqrt((sd(산업[treat==1], na.rm = TRUE)^2 + sd(산업[treat==0], na.rm = TRUE)^2) / 2),
+    연구개발비_SMD = (mean(log_연구개발비[treat==1], na.rm=TRUE) - mean(log_연구개발비[treat==0], na.rm=TRUE)) /
+      sqrt((sd(log_연구개발비[treat==1], na.rm=TRUE)^2 + sd(log_연구개발비[treat==0], na.rm=TRUE)^2) / 2),
+    수출_SMD = (mean(log_수출[treat==1], na.rm=TRUE) - mean(log_수출[treat==0], na.rm=TRUE)) /
+      sqrt((sd(log_수출[treat==1], na.rm=TRUE)^2 + sd(log_수출[treat==0], na.rm=TRUE)^2) / 2)
   )
 
 cat("\n=== 매칭 후 표준화 차이 (SMD) ===\n")
@@ -356,16 +365,19 @@ print(after_balance)
 # ============================================================
 
 balance_df <- data.frame(
-  변수 = c("log(자산)", "log(매출)", "log(부채)", "log(자본금)", 
-         "log(종업원수)", "log(업력)", "영업이익", "노동생산성", "지역", "산업"),
+  변수 = c("log(자산)", "log(매출)", "log(부채)", "log(자본금)",
+         "log(종업원수)", "log(업력)", "영업이익", "노동생산성", "지역", "산업",
+         "log(연구개발비)", "log(수출)"), 
   매칭전 = c(before_balance$자산_SMD, before_balance$매출_SMD, before_balance$부채_SMD,
           before_balance$자본금_SMD, before_balance$종업원_SMD, 
           before_balance$업력_SMD, before_balance$영업이익_SMD, before_balance$노동생산성_SMD,
-          before_balance$지역_SMD, before_balance$산업_SMD),
+          before_balance$지역_SMD, before_balance$산업_SMD,
+          before_balance$연구개발비_SMD, before_balance$수출_SMD),   # ← 추가
   매칭후 = c(after_balance$자산_SMD, after_balance$매출_SMD, after_balance$부채_SMD,
           after_balance$자본금_SMD, after_balance$종업원_SMD, 
           after_balance$업력_SMD, after_balance$영업이익_SMD, after_balance$노동생산성_SMD,
-          after_balance$지역_SMD, after_balance$산업_SMD)
+          after_balance$지역_SMD, after_balance$산업_SMD,
+          after_balance$연구개발비_SMD, after_balance$수출_SMD)    # ← 추가
 ) %>%
   pivot_longer(cols = c(매칭전, 매칭후), names_to = "시점", values_to = "SMD")
 
@@ -433,8 +445,9 @@ cat("✓ 저장 완료: propensity_score_distribution.png\n")
 # 6. 처치효과 추정 (ATT: Average Treatment effect on the Treated)
 # ============================================================
 
-test_vars <- c("자산", "매출", "부채", "자본금", "종업원수", "업력", 
-               "영업이익", "노동생산성", "지역", "산업")
+test_vars <- c("자산", "매출", "부채", "자본금", "종업원수", "업력",
+               "영업이익", "노동생산성", "지역", "산업",
+               "연구개발비", "수출금액")   # ← 추가
 
 # 매칭 전후 평균 차이 계산
 before_att <- analysis_data %>%
@@ -586,4 +599,6 @@ cat("   - 영업이익:", round(before_balance$영업이익_SMD, 3), "→", roun
 cat("   - 노동생산성:", round(before_balance$노동생산성_SMD, 3), "→", round(after_balance$노동생산성_SMD, 3), "\n")
 cat("   - 지역:", round(before_balance$지역_SMD, 3), "→", round(after_balance$지역_SMD, 3), "\n")
 cat("   - 산업:", round(before_balance$산업_SMD, 3), "→", round(after_balance$산업_SMD, 3), "\n")
+cat("   - 연구개발비:", round(before_balance$연구개발비_SMD, 3), "→", round(after_balance$연구개발비_SMD, 3), "\n")
+cat("   - 수출:",       round(before_balance$수출_SMD, 3),       "→", round(after_balance$수출_SMD, 3), "\n")
 
