@@ -2,6 +2,7 @@
 # 소재(seg=1) / 부품(seg=2) / 장비(seg=3)별 DID 분석
 # RQ1 (패널 FE ATT) + Simple DID (2019 vs 2024) — log 변환 버전
 # OLS
+# 종업원수삭제 (결측치 다수), 수출, 개발비용계 추가. 20260308
 # ==============================================================================
 
 packages <- c("readxl", "dplyr", "tidyr", "ggplot2", "broom", "sandwich",
@@ -53,7 +54,7 @@ panel_list <- lapply(1:nrow(matched), function(i) {
     region      = row$region,
     subclass    = row$subclass,
     year        = years,
-    emp       = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S05000.종업원수")]])),
+    #emp       = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S05000.종업원수")]])),
     asset     = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S15000.자산총계")]])),
     debt      = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18000.부채총계")]])),
     equity    = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18900.자본총계")]])),
@@ -61,6 +62,9 @@ panel_list <- lapply(1:nrow(matched), function(i) {
     sales     = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S21100.총매출액")]])),
     op_profit = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S25000.영업이익(손실)")]])),
     patent    = sapply(years, function(y) to_num(row[[paste0("p", y)]])),
+    # ↓ 추가
+    export    = sapply(years, function(y) to_num(row[[paste0("exportamt", y)]])),
+    rdcost    = sapply(years, function(y) to_num(row[[paste0("rdcost", y)]])),
     stringsAsFactors = FALSE
   )
 })
@@ -76,13 +80,15 @@ cat("\n패널:", nrow(panel), "obs,", length(unique(panel$firm_id)), "firms\n")
 panel <- panel %>%
   mutate(
     log_patent    = log1p(pmax(patent,  0, na.rm = TRUE)),   # ln(특허+1)
-    log_emp_raw   = ifelse(!is.na(emp)   & emp   > 0, log(emp),   NA),  # ln(종업원수)
+    #log_emp_raw   = ifelse(!is.na(emp)   & emp   > 0, log(emp),   NA),  # ln(종업원수)
     log_asset_raw = ifelse(!is.na(asset) & asset > 0, log(asset), NA),  # ln(자산총계)
     log_debt      = log1p(pmax(debt,    0, na.rm = TRUE)),   # ln(부채총계+1)
     log_equity    = log_signed(equity),                       # ±ln(자본총계+1)
     log_capital   = log1p(pmax(capital, 0, na.rm = TRUE)),   # ln(자본금+1)
     log_sales     = ifelse(!is.na(sales) & sales > 0, log(sales), NA),  # ln(매출액)
-    log_opprofit  = log_signed(op_profit)                     # ±ln(영업이익+1)
+    log_opprofit  = log_signed(op_profit),                     # ±ln(영업이익+1)
+    log_export = log1p(pmax(export, 0, na.rm = TRUE)), # 수출금액
+    log_rdcost = log1p(pmax(rdcost, 0, na.rm = TRUE)) # 연구개발비 
   )
 
 # ==============================================================================
@@ -156,7 +162,7 @@ for (v in ratio_vars) {
 }
 
 # ── 통제변수 ──
-panel$log_emp   <- panel$log_emp_raw
+#panel$log_emp   <- panel$log_emp_raw
 panel$log_asset <- panel$log_asset_raw
 panel$leverage  <- panel$debt / ifelse(panel$asset == 0, NA, panel$asset)
 
@@ -201,10 +207,12 @@ sig_mark <- function(p) {
 
 run_rq1 <- function(sub, dv, method) {
   df <- sub %>%
-    filter(!is.na(.data[[dv]]), !is.na(log_emp), !is.na(log_asset), !is.na(leverage))
+    filter(!is.na(.data[[dv]]), #!is.na(log_emp), 
+           !is.na(log_asset), !is.na(leverage))
   tryCatch({
     if (method == "ols") {
-      fml <- as.formula(paste0(dv, " ~ did + treat + log_emp + log_asset + leverage + factor(year)"))
+      fml <- as.formula(paste0(dv, " ~ did + treat + log_export + log_rdcost + 
+                               log_asset + leverage + factor(year)"))
       m   <- lm(fml, data = df)
       rob <- coeftest(m, vcov = vcovCL(m, cluster = df$firm_id))
       data.frame(coef = rob["did",1], se = rob["did",2], stat = rob["did",3], pval = rob["did",4])
@@ -393,9 +401,11 @@ cat(paste(rep("=", 80), collapse = ""), "\n")
 
 simple_vars <- data.frame(
   label = c("ln자산", "ln매출", "ln부채", "ln자본금",
-            "ln종업원수", "ln영업이익", "ln특허"),
+            #"ln종업원수", 
+            "ln영업이익", "ln특허","ln수출금액", "ln연구개발비"), # ← 추가
   var   = c("log_asset_raw", "log_sales", "log_debt", "log_capital",
-            "log_emp_raw", "log_opprofit", "log_patent"),
+            #"log_emp_raw", 
+            "log_opprofit", "log_patent","log_export", "log_rdcost"), # ← 추가
   stringsAsFactors = FALSE
 )
 
