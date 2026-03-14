@@ -613,7 +613,7 @@ result <- map_dfr(years, function(yr) {
       na_수출_변환        = sum(is.na(.data[[paste0("exportamt", yr)]])), # 0이어야 정상
       
       # 노동생산성 (변환 컬럼)
-      na_노동생산성       = sum(is.na(.data[[paste0("labor_prod", yr)]])),
+      #na_노동생산성       = sum(is.na(.data[[paste0("labor_prod", yr)]])),
       
       # 특허 (변환 컬럼)
       na_특허             = sum(is.na(.data[[paste0("p", yr)]]))
