@@ -419,26 +419,26 @@ merged_data %>%
 # 노동생상성 지수 = 매출 / 종업원 수 
 
 # 년도별 노동생산성 (매출/종업원수) 계산
-merged_data <- merged_data %>%
-  mutate(
-    labor_prod2019 = as.numeric(`2019/Annual S21100.총매출액`) / as.numeric(`2019/Annual S05000.종업원수`),
-    labor_prod2020 = as.numeric(`2020/Annual S21100.총매출액`) / as.numeric(`2020/Annual S05000.종업원수`),
-    labor_prod2021 = as.numeric(`2021/Annual S21100.총매출액`) / as.numeric(`2021/Annual S05000.종업원수`),
-    labor_prod2022 = as.numeric(`2022/Annual S21100.총매출액`) / as.numeric(`2022/Annual S05000.종업원수`),
-    labor_prod2023 = as.numeric(`2023/Annual S21100.총매출액`) / as.numeric(`2023/Annual S05000.종업원수`),
-    labor_prod2024 = as.numeric(`2024/Annual S21100.총매출액`) / as.numeric(`2024/Annual S05000.종업원수`)
-  )
+#merged_data <- merged_data %>%
+#  mutate(
+#    labor_prod2019 = as.numeric(`2019/Annual S21100.총매출액`) / as.numeric(`2019/Annual S05000.종업원수`),
+#    labor_prod2020 = as.numeric(`2020/Annual S21100.총매출액`) / as.numeric(`2020/Annual S05000.종업원수`),
+#    labor_prod2021 = as.numeric(`2021/Annual S21100.총매출액`) / as.numeric(`2021/Annual S05000.종업원수`),
+#    labor_prod2022 = as.numeric(`2022/Annual S21100.총매출액`) / as.numeric(`2022/Annual S05000.종업원수`),
+#    labor_prod2023 = as.numeric(`2023/Annual S21100.총매출액`) / as.numeric(`2023/Annual S05000.종업원수`),
+#    labor_prod2024 = as.numeric(`2024/Annual S21100.총매출액`) / as.numeric(`2024/Annual S05000.종업원수`)
+#  )
 
 # 확인
-merged_data %>%
-  summarise(
-    avg_labor_prod2019 = mean(labor_prod2019, na.rm = TRUE),
-    avg_labor_prod2020 = mean(labor_prod2020, na.rm = TRUE),
-    avg_labor_prod2021 = mean(labor_prod2021, na.rm = TRUE),
-    avg_labor_prod2022 = mean(labor_prod2022, na.rm = TRUE),
-    avg_labor_prod2023 = mean(labor_prod2023, na.rm = TRUE),
-    avg_labor_prod2024 = mean(labor_prod2024, na.rm = TRUE)
-  )
+#merged_data %>%
+#  summarise(
+#    avg_labor_prod2019 = mean(labor_prod2019, na.rm = TRUE),
+#    avg_labor_prod2020 = mean(labor_prod2020, na.rm = TRUE),
+#    avg_labor_prod2021 = mean(labor_prod2021, na.rm = TRUE),
+#    avg_labor_prod2022 = mean(labor_prod2022, na.rm = TRUE),
+#    avg_labor_prod2023 = mean(labor_prod2023, na.rm = TRUE),
+#    avg_labor_prod2024 = mean(labor_prod2024, na.rm = TRUE)
+#  )
 
 
 
