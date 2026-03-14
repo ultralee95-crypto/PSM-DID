@@ -161,9 +161,30 @@ merged_data <- merged_data %>%
 
 #===============================================================================
 #기업 업력
-merged_data$age <- year(Sys.Date()) - year(as.Date(merged_data$'691040.설립일'))
+
+print(merged_data$`691040.설립일`)
+
+merged_data <- merged_data %>%
+  mutate(
+    설립일_clean = na_if(`691040.설립일`, ""),   # 빈문자열 → NA
+    설립일_date  = parse_date_time(설립일_clean,
+                                orders = c("Y-m-d", "Ymd", "Y/m/d")),
+    age          = year(Sys.Date()) - year(설립일_date)
+  )
+
+# 검증
+cat("원본 NA    :", sum(is.na(merged_data$`691040.설립일`)), "\n")
+cat("빈문자열   :", sum(merged_data$`691040.설립일` == "", na.rm = TRUE), "\n")
+cat("변환 후 NA :", sum(is.na(merged_data$age)), "\n")
+
+# 변환 성공 샘플
+merged_data %>%
+  filter(!is.na(age)) %>%
+  select(`691040.설립일`, 설립일_date, age) %>%
+  head(100)
 
 
+print(merged_data$age)
 print(merged_data$funded)
 print(merged_data$group)
 
@@ -386,12 +407,12 @@ merged_data <- merged_data %>%
 # 확인
 merged_data %>%
   summarise(
-    export2019 = sum(export2019, na.rm = TRUE),
-    export2020 = sum(export2020, na.rm = TRUE),
-    export2021 = sum(export2021, na.rm = TRUE),
-    export2022 = sum(export2022, na.rm = TRUE),
-    export2023 = sum(export2023, na.rm = TRUE),
-    export2024 = sum(export2024, na.rm = TRUE)
+    exportamt2019 = sum(exportamt2019, na.rm = TRUE),
+    exportamt2020 = sum(exportamt2020, na.rm = TRUE),
+    exportamt2021 = sum(exportamt2021, na.rm = TRUE),
+    exportamt2022 = sum(exportamt2022, na.rm = TRUE),
+    exportamt2023 = sum(exportamt2023, na.rm = TRUE),
+    exportamt2024 = sum(exportamt2024, na.rm = TRUE)
   )
 
 #===============================================================================
@@ -545,6 +566,61 @@ merged_data %>%
     매칭률 = paste0(round(매칭 / 전체 * 100, 1), "%")
   ) %>%
   print()
+
+
+
+
+#===============================================================================
+# 결측치 확인
+#===============================================================================
+
+# ── 연도 고정 항목 (한 번만 확인) ──────────────────────────────
+fixed_na <- merged_data %>%
+  summarise(
+    n_total       = n(),
+    na_업력       = sum(is.na(age)),
+    na_KSIC_표준  = sum(is.na(KSIC_mid_code)),
+    na_지역       = sum(is.na(region))
+  )
+
+cat("=== 연도 고정 항목 ===\n")
+print(fixed_na, width = Inf)
+
+# ── 연도별 반복 항목 ───────────────────────────────────────────
+years <- 2019:2024
+
+result <- map_dfr(years, function(yr) {
+  merged_data %>%
+    summarise(
+      연도                = yr,
+      n_total             = n(),
+      
+      # 재무 변수 (원본 컬럼)
+      na_자산             = sum(is.na(.data[[paste0(yr, "/Annual S15000.자산총계")]])),
+      na_매출             = sum(is.na(.data[[paste0(yr, "/Annual S21100.총매출액")]])),
+      na_부채             = sum(is.na(.data[[paste0(yr, "/Annual S18000.부채총계")]])),
+      na_자본금           = sum(is.na(.data[[paste0(yr, "/Annual S18100.자본금")]])),
+      na_종업원           = sum(is.na(.data[[paste0(yr, "/Annual S05000.종업원수")]])),
+      na_영업이익         = sum(is.na(.data[[paste0(yr, "/Annual S25000.영업이익(손실)")]])),
+      
+      # 연구개발비 (원본 vs 변환)
+      na_연구개발비_원본  = sum(is.na(.data[[paste0(yr, "/Annual 692084.연구개발비용-연구개발비용계")]])),
+      na_연구개발비_변환  = sum(is.na(.data[[paste0("rdcost", yr)]])),   # 0이어야 정상
+      
+      # 수출 (원본 vs 변환)
+      na_수출_원본        = sum(is.na(.data[[paste0(yr, "/Annual S21195.[수출]")]])),
+      na_수출_변환        = sum(is.na(.data[[paste0("exportamt", yr)]])), # 0이어야 정상
+      
+      # 노동생산성 (변환 컬럼)
+      na_노동생산성       = sum(is.na(.data[[paste0("labor_prod", yr)]])),
+      
+      # 특허 (변환 컬럼)
+      na_특허             = sum(is.na(.data[[paste0("p", yr)]]))
+    )
+})
+
+cat("\n=== 연도별 항목 ===\n")
+print(result, width = Inf)
 
 #===============================================================================
 #  저장
