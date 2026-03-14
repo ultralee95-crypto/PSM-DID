@@ -35,7 +35,7 @@ data <- read_excel("sobujang_integrated_with_valuesearch+Patent.xlsx",
 to_numeric <- function(x) as.numeric(gsub(",", "", as.character(x)))
 
 # 변환 전 결측치 확인하여 데이터 확인 함.
-analysis_data %>%
+result = analysis_data %>%
   summarise(
     n_total = n(),
     na_자산 = sum(is.na(`2019/Annual S15000.자산총계`)),
@@ -47,11 +47,13 @@ analysis_data %>%
     na_업력 = sum(is.na(`age`)),
     na_KSIC_표준 = sum(is.na(`KSIC_mid_code`)),
     na_지역 = sum(is.na(`region`)),
-    na_노동생산성= sum(is.na(`labor_prod2019`)),
+    #na_노동생산성= sum(is.na(`labor_prod2019`)), #삭제 해야 함. 
     na_영업이익= sum(is.na(`2019/Annual S25000.영업이익(손실)`)),
-    na_연구개발비 = sum(is.na(`2019/Annual 692084.연구개발비용-연구개발비용계`)),
-    na_수출 = sum(is.na(`2019/Annual S21195.[수출]`))
+    na_연구개발비 = sum(is.na(`rdcost2019`)),
+    na_수출 = sum(is.na(`exportamt2019`))
   )
+
+print(result, width = Inf)
 
 analysis_data <- data %>%
   filter(group %in% c("Treatgroup", "Controlgroup")) %>%
@@ -65,7 +67,7 @@ analysis_data <- data %>%
     산업       = to_numeric(`KSIC_mid_code`),
     지역       = to_numeric(`region`),
     영업이익   = to_numeric(`2019/Annual S25000.영업이익(손실)`),
-    노동생산성 = to_numeric(`labor_prod2019`),
+    #노동생산성 = to_numeric(`labor_prod2019`),
     연구개발비 = to_numeric(rdcost2019),      # rdcost2019: #2에서 생성
     수출금액   = to_numeric(exportamt2019),   # exportamt2019: #2에서 생성
     
@@ -78,7 +80,7 @@ analysis_data <- data %>%
     log_업력      = log(업력 + 1),
     log_산업      = log(산업 + 1),
     log_지역      = log(지역 + 1),
-    log_노동생산성 = log(노동생산성 + 1),
+    #log_노동생산성 = log(노동생산성 + 1),
     log_연구개발비 = log(연구개발비 + 1),    # ← 추가
     log_수출       = log(수출금액 + 1)       # ← 추가
   ) %>%
@@ -189,7 +191,7 @@ cat("  전체 처치:", sum(matched_data_B$treat == 1),
 calc_smd <- function(df) {
   vars <- c("log_자산", "log_매출", "log_부채", "log_자본금",
             # "log_종업원수" 삭제
-            "log_업력", "영업이익", "노동생산성",
+            "log_업력", "영업이익", #"노동생산성",
             "log_연구개발비", "log_수출")    # ← 추가
   sapply(vars, function(v) {
     x1 <- df[[v]][df$treat == 1]; x0 <- df[[v]][df$treat == 0]
