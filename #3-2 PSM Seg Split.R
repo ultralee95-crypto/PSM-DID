@@ -29,8 +29,11 @@ theme_set(theme_minimal(base_family = kfont))
 
 cat("=== 데이터 로드 ===\n")
 
-data <- read_excel("sobujang_integrated_with_valuesearch+Patent.xlsx",
+analysis_data <- read_excel("sobujang_integrated_with_valuesearch+Patent.xlsx",
                    sheet = 1, col_types = "text")
+
+head(analysis_data)
+names(analysis_data)
 
 to_numeric <- function(x) as.numeric(gsub(",", "", as.character(x)))
 
@@ -39,7 +42,7 @@ result = analysis_data %>%
   summarise(
     n_total = n(),
     na_자산 = sum(is.na(`2019/Annual S15000.자산총계`)),
-    na_매출 = sum(is.na(`2019/Annual S21100.총매출액`)),
+    na_매출 = sum(is.na(`2019/Annual S21100.총수익`)),
     na_부채 = sum(is.na(`2019/Annual S18000.부채총계`)),
     na_자본금 = sum(is.na(`2019/Annual S18100.자본금`)),
     #na_자본총 = sum(is.na(`2019/Annual S18900.자본총계`)), 음수가 발생
@@ -50,16 +53,18 @@ result = analysis_data %>%
     #na_노동생산성= sum(is.na(`labor_prod2019`)), #삭제 해야 함. 
     na_영업이익= sum(is.na(`2019/Annual S25000.영업이익(손실)`)),
     na_연구개발비 = sum(is.na(`rdcost2019`)),
-    na_수출 = sum(is.na(`exportamt2019`))
-  )
+    na_수출 = sum(is.na(`exportamt2019`)),
+    na_인건비 = sum(is.na('lbcost2019')),
+    na_노무비 = sum(is.na(`mflbcost2019`))
+   )
 
 print(result, width = Inf)
 
-analysis_data <- data %>%
+analysis_data <- analysis_data %>%
   filter(group %in% c("Treatgroup", "Controlgroup")) %>%
   mutate(
     자산       = to_numeric(`2019/Annual S15000.자산총계`),
-    매출       = to_numeric(`2019/Annual S21100.총매출액`),
+    매출       = to_numeric(`2019/Annual S21100.총수익`),
     부채       = to_numeric(`2019/Annual S18000.부채총계`),
     자본금     = to_numeric(`2019/Annual S18100.자본금`),
     #종업원수   = to_numeric(`2019/Annual S05000.종업원수`),
@@ -68,8 +73,10 @@ analysis_data <- data %>%
     지역       = to_numeric(`region`),
     영업이익   = to_numeric(`2019/Annual S25000.영업이익(손실)`),
     #노동생산성 = to_numeric(`labor_prod2019`),
-    연구개발비 = to_numeric(rdcost2019),      # rdcost2019: #2에서 생성
-    수출금액   = to_numeric(exportamt2019),   # exportamt2019: #2에서 생성
+    연구개발비 = to_numeric(rdcost2019),
+    수출금액   = to_numeric(exportamt2019), 
+    인건비     = to_numeric(lbcost2019),
+    노무비     = to_numeric(mflbcost2019),
     
     treat      = ifelse(group == "Treatgroup", 1, 0),
     log_자산      = log(자산 + 1),
@@ -81,11 +88,12 @@ analysis_data <- data %>%
     log_산업      = log(산업 + 1),
     log_지역      = log(지역 + 1),
     #log_노동생산성 = log(노동생산성 + 1),
-    log_연구개발비 = log(연구개발비 + 1),    # ← 추가
-    log_수출       = log(수출금액 + 1)       # ← 추가
+    log_연구개발비 = log(연구개발비 + 1), 
+    log_수출       = log(수출금액 + 1),       
+    log_인건비   = log(인건비 + 1),
+    log_노무비   = log(노무비 + 1)
   ) %>%
   filter(!is.na(자산) & !is.na(매출) & !is.na(부채) & !is.na(자본금) &
-           #!is.na(종업원수) & 
            !is.na(업력) & !is.na(영업이익))
 
 cat("전체 샘플:", nrow(analysis_data), "\n")
@@ -93,8 +101,8 @@ cat("seg 분포:\n"); print(table(analysis_data$seg, analysis_data$treat))
 
 # PSM 공식
 psm_formula <- treat ~ log_자산 + log_매출 + log_부채 + log_자본금 +
-  #log_종업원수 + 
-  log_업력 + factor(산업) + factor(지역) + log_연구개발비 + log_수출
+    log_업력 + factor(산업) + factor(지역) + log_연구개발비 + log_수출 + 
+  log_인건비 + log_노무비
 
 # ==============================================================================
 # 2. 방법 A: 기존 방식 (통합 PSM + exact = ~seg)
@@ -149,8 +157,9 @@ for (s in names(seg_labels)) {
     ind_lvl <- length(unique(sub_data$산업))
     reg_lvl <- length(unique(sub_data$지역))
     
-    base_vars <- "log_자산 + log_매출 + log_부채 + log_자본금 + log_업력 + log_연구개발비 + log_수출"
-    # log_종업원수 삭제, log_연구개발비 + log_수출 추가
+    base_vars <- "log_자산 + log_매출 + log_부채 + log_자본금 + log_업력 + log_연구개발비 + log_수출 + 
+    log_인건비 + log_노무비"
+
     ind_part  <- if (ind_lvl > 1) " + factor(산업)" else ""
     reg_part  <- if (reg_lvl > 1) " + factor(지역)" else ""
     as.formula(paste0("treat ~ ", base_vars, ind_part, reg_part))
@@ -192,7 +201,7 @@ calc_smd <- function(df) {
   vars <- c("log_자산", "log_매출", "log_부채", "log_자본금",
             # "log_종업원수" 삭제
             "log_업력", "영업이익", #"노동생산성",
-            "log_연구개발비", "log_수출")    # ← 추가
+            "log_연구개발비", "log_수출", "log_인건비", "log_노무비")    # ← 추가
   sapply(vars, function(v) {
     x1 <- df[[v]][df$treat == 1]; x0 <- df[[v]][df$treat == 0]
     (mean(x1, na.rm = TRUE) - mean(x0, na.rm = TRUE)) /
