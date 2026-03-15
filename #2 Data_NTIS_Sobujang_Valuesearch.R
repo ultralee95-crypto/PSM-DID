@@ -161,6 +161,8 @@ merged_data <- merged_data %>%
 
 #===============================================================================
 #기업 업력
+#기업 업력 N/A는 Sobujang 기업을 value search에서 찾지 못하여 발생 - non - match
+#===============================================================================
 
 print(merged_data$`691040.설립일`)
 
@@ -369,6 +371,7 @@ merged_data %>%
 #===============================================================================
 # 수출 여부를 0, 1로 표기 
 # 수출, 개발비용 N/A 이면 0으로 처리.
+# 인건비, 노무비 N/A -> 0
 
 
 # 전체 출력
@@ -380,6 +383,7 @@ merged_data %>%
 # 년도별 수출 유무 (수출 있으면 1, 없으면 0)
 merged_data <- merged_data %>%
   mutate(
+    export2018 = ifelse(!is.na(`2018/Annual S21195.[수출]`) & `2018/Annual S21195.[수출]` > 0, 1, 0),
     export2019 = ifelse(!is.na(`2019/Annual S21195.[수출]`) & `2019/Annual S21195.[수출]` > 0, 1, 0),
     export2020 = ifelse(!is.na(`2020/Annual S21195.[수출]`) & `2020/Annual S21195.[수출]` > 0, 1, 0),
     export2021 = ifelse(!is.na(`2021/Annual S21195.[수출]`) & `2021/Annual S21195.[수출]` > 0, 1, 0),
@@ -388,6 +392,7 @@ merged_data <- merged_data %>%
     export2024 = ifelse(!is.na(`2024/Annual S21195.[수출]`) & `2024/Annual S21195.[수출]` > 0, 1, 0),
     
     # ── 수출금액 (NA → 0 처리) ──
+    exportamt2018 = ifelse(is.na(as.numeric(`2018/Annual S21195.[수출]`)), 0, as.numeric(`2018/Annual S21195.[수출]`)),
     exportamt2019 = ifelse(is.na(as.numeric(`2019/Annual S21195.[수출]`)), 0, as.numeric(`2019/Annual S21195.[수출]`)),
     exportamt2020 = ifelse(is.na(as.numeric(`2020/Annual S21195.[수출]`)), 0, as.numeric(`2020/Annual S21195.[수출]`)),
     exportamt2021 = ifelse(is.na(as.numeric(`2021/Annual S21195.[수출]`)), 0, as.numeric(`2021/Annual S21195.[수출]`)),
@@ -396,12 +401,31 @@ merged_data <- merged_data %>%
     exportamt2024 = ifelse(is.na(as.numeric(`2024/Annual S21195.[수출]`)), 0, as.numeric(`2024/Annual S21195.[수출]`)),
     
     # ── 연구개발비용계 (NA → 0 처리) ──
+    rdcost2018 = ifelse(is.na(as.numeric(`2018/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2018/Annual 692084.연구개발비용-연구개발비용계`)),
     rdcost2019 = ifelse(is.na(as.numeric(`2019/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2019/Annual 692084.연구개발비용-연구개발비용계`)),
     rdcost2020 = ifelse(is.na(as.numeric(`2020/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2020/Annual 692084.연구개발비용-연구개발비용계`)),
     rdcost2021 = ifelse(is.na(as.numeric(`2021/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2021/Annual 692084.연구개발비용-연구개발비용계`)),
     rdcost2022 = ifelse(is.na(as.numeric(`2022/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2022/Annual 692084.연구개발비용-연구개발비용계`)),
     rdcost2023 = ifelse(is.na(as.numeric(`2023/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2023/Annual 692084.연구개발비용-연구개발비용계`)),
-    rdcost2024 = ifelse(is.na(as.numeric(`2024/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2024/Annual 692084.연구개발비용-연구개발비용계`))
+    rdcost2024 = ifelse(is.na(as.numeric(`2024/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2024/Annual 692084.연구개발비용-연구개발비용계`)),
+    
+    # ── 인건비 (NA → 0 처리) ──
+    lbcost2018 = ifelse(is.na(as.numeric(`2018/Annual 124100.인건비`)), 0, as.numeric(`2018/Annual 124100.인건비`)),
+    lbcost2019 = ifelse(is.na(as.numeric(`2019/Annual 124100.인건비`)), 0, as.numeric(`2019/Annual 124100.인건비`)),
+    lbcost2020 = ifelse(is.na(as.numeric(`2020/Annual 124100.인건비`)), 0, as.numeric(`2020/Annual 124100.인건비`)),
+    lbcost2021 = ifelse(is.na(as.numeric(`2021/Annual 124100.인건비`)), 0, as.numeric(`2021/Annual 124100.인건비`)),
+    lbcost2022 = ifelse(is.na(as.numeric(`2022/Annual 124100.인건비`)), 0, as.numeric(`2022/Annual 124100.인건비`)),
+    lbcost2023 = ifelse(is.na(as.numeric(`2023/Annual 124100.인건비`)), 0, as.numeric(`2023/Annual 124100.인건비`)),
+    lbcost2024 = ifelse(is.na(as.numeric(`2024/Annual 124100.인건비`)), 0, as.numeric(`2024/Annual 124100.인건비`)),
+    
+    # ── 노무비 (NA → 0 처리) ──
+    mflbcost2018 = ifelse(is.na(as.numeric(`2018/Annual 152000.노무비`)), 0, as.numeric(`2018/Annual 152000.노무비`)),
+    mflbcost2019 = ifelse(is.na(as.numeric(`2019/Annual 152000.노무비`)), 0, as.numeric(`2019/Annual 152000.노무비`)),
+    mflbcost2020 = ifelse(is.na(as.numeric(`2020/Annual 152000.노무비`)), 0, as.numeric(`2020/Annual 152000.노무비`)),
+    mflbcost2021 = ifelse(is.na(as.numeric(`2021/Annual 152000.노무비`)), 0, as.numeric(`2021/Annual 152000.노무비`)),
+    mflbcost2022 = ifelse(is.na(as.numeric(`2022/Annual 152000.노무비`)), 0, as.numeric(`2022/Annual 152000.노무비`)),
+    mflbcost2023 = ifelse(is.na(as.numeric(`2023/Annual 152000.노무비`)), 0, as.numeric(`2023/Annual 152000.노무비`)),
+    mflbcost2024 = ifelse(is.na(as.numeric(`2024/Annual 152000.노무비`)), 0, as.numeric(`2024/Annual 152000.노무비`))
   )
 
 # 확인
@@ -416,29 +440,30 @@ merged_data %>%
   )
 
 #===============================================================================
-# 노동생상성 지수 = 매출 / 종업원 수 
+# 노동생상성 지수 = 총수익 / 종업원 수 
+# 변수 이름인 총매출액 --> 총수익으로 변경 From ValueSearch. S21100.
 
-# 년도별 노동생산성 (매출/종업원수) 계산
-#merged_data <- merged_data %>%
-#  mutate(
-#    labor_prod2019 = as.numeric(`2019/Annual S21100.총매출액`) / as.numeric(`2019/Annual S05000.종업원수`),
-#    labor_prod2020 = as.numeric(`2020/Annual S21100.총매출액`) / as.numeric(`2020/Annual S05000.종업원수`),
-#    labor_prod2021 = as.numeric(`2021/Annual S21100.총매출액`) / as.numeric(`2021/Annual S05000.종업원수`),
-#    labor_prod2022 = as.numeric(`2022/Annual S21100.총매출액`) / as.numeric(`2022/Annual S05000.종업원수`),
-#    labor_prod2023 = as.numeric(`2023/Annual S21100.총매출액`) / as.numeric(`2023/Annual S05000.종업원수`),
-#    labor_prod2024 = as.numeric(`2024/Annual S21100.총매출액`) / as.numeric(`2024/Annual S05000.종업원수`)
-#  )
+# 년도별 노동생산성 (총수익/종업원수) 계산
+merged_data <- merged_data %>%
+  mutate(
+    labor_prod2019 = as.numeric(`2019/Annual S21100.총수익`) / as.numeric(`2019/Annual S05000.종업원수`),
+    labor_prod2020 = as.numeric(`2020/Annual S21100.총수익`) / as.numeric(`2020/Annual S05000.종업원수`),
+    labor_prod2021 = as.numeric(`2021/Annual S21100.총수익`) / as.numeric(`2021/Annual S05000.종업원수`),
+    labor_prod2022 = as.numeric(`2022/Annual S21100.총수익`) / as.numeric(`2022/Annual S05000.종업원수`),
+    labor_prod2023 = as.numeric(`2023/Annual S21100.총수익`) / as.numeric(`2023/Annual S05000.종업원수`),
+    labor_prod2024 = as.numeric(`2024/Annual S21100.총수익`) / as.numeric(`2024/Annual S05000.종업원수`)
+  )
 
 # 확인
-#merged_data %>%
-#  summarise(
-#    avg_labor_prod2019 = mean(labor_prod2019, na.rm = TRUE),
-#    avg_labor_prod2020 = mean(labor_prod2020, na.rm = TRUE),
-#    avg_labor_prod2021 = mean(labor_prod2021, na.rm = TRUE),
-#    avg_labor_prod2022 = mean(labor_prod2022, na.rm = TRUE),
-#    avg_labor_prod2023 = mean(labor_prod2023, na.rm = TRUE),
-#    avg_labor_prod2024 = mean(labor_prod2024, na.rm = TRUE)
-#  )
+merged_data %>%
+  summarise(
+    avg_labor_prod2019 = mean(labor_prod2019, na.rm = TRUE),
+    avg_labor_prod2020 = mean(labor_prod2020, na.rm = TRUE),
+    avg_labor_prod2021 = mean(labor_prod2021, na.rm = TRUE),
+    avg_labor_prod2022 = mean(labor_prod2022, na.rm = TRUE),
+    avg_labor_prod2023 = mean(labor_prod2023, na.rm = TRUE),
+    avg_labor_prod2024 = mean(labor_prod2024, na.rm = TRUE)
+  )
 
 
 
@@ -598,7 +623,7 @@ result <- map_dfr(years, function(yr) {
       
       # 재무 변수 (원본 컬럼)
       na_자산             = sum(is.na(.data[[paste0(yr, "/Annual S15000.자산총계")]])),
-      na_매출             = sum(is.na(.data[[paste0(yr, "/Annual S21100.총매출액")]])),
+      na_수익             = sum(is.na(.data[[paste0(yr, "/Annual S21100.총수익")]])),
       na_부채             = sum(is.na(.data[[paste0(yr, "/Annual S18000.부채총계")]])),
       na_자본금           = sum(is.na(.data[[paste0(yr, "/Annual S18100.자본금")]])),
       na_종업원           = sum(is.na(.data[[paste0(yr, "/Annual S05000.종업원수")]])),
@@ -613,7 +638,7 @@ result <- map_dfr(years, function(yr) {
       na_수출_변환        = sum(is.na(.data[[paste0("exportamt", yr)]])), # 0이어야 정상
       
       # 노동생산성 (변환 컬럼)
-      #na_노동생산성       = sum(is.na(.data[[paste0("labor_prod", yr)]])),
+      na_노동생산성       = sum(is.na(.data[[paste0("labor_prod", yr)]])),
       
       # 특허 (변환 컬럼)
       na_특허             = sum(is.na(.data[[paste0("p", yr)]]))
