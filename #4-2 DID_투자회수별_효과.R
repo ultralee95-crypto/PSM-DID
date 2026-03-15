@@ -110,7 +110,9 @@ panel <- panel %>%
     log_opprofit = log_signed(op_profit),
     log_patent   = log1p(pmax(patent,  0, na.rm = TRUE)),
     log_export   = log1p(pmax(export,  0, na.rm = TRUE)),
-    log_rdcost   = log1p(pmax(rdcost,  0, na.rm = TRUE))
+    log_rdcost   = log1p(pmax(rdcost,  0, na.rm = TRUE)),
+    log_lbcost   = log1p(pmax(lbcost,  0, na.rm = TRUE)),
+    log_mflbcost = log1p(pmax(mflbcost, 0, na.rm = TRUE))
   )
 
 # 부문 라벨
@@ -130,7 +132,7 @@ print(
 # 3. 분석 변수 정의
 # ==============================================================================
 
-simple_vars <- data.frame(
+ana_vars <- data.frame(
   label = c("ln자산",    "ln매출",    "ln부채",     "ln자본금",
             "ln영업이익", "ln(특허+1)", "ln(수출+1)", "ln(개발비+1)",
             "ln(인건비+1)", "ln(노무비+1)"),   # ← 2개 추가
