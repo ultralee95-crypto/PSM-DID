@@ -50,10 +50,19 @@ sig_mark <- function(p) {
 }
 
 # ==============================================================================
-# 1. Wide → Long 패널 변환 (2019–2024)
+# 1. Wide → Long 패널 변환 (2018–2024)
 # ==============================================================================
 
-years <- 2019:2024
+safe_col <- function(row, col_name) {
+  if (col_name %in% names(row) && !is.null(row[[col_name]])) {
+    to_num(row[[col_name]])
+  } else {
+    NA_real_
+  }
+}
+
+
+years <- 2018:2024
 
 panel_list <- lapply(1:nrow(matched), function(i) {
   row <- matched[i, ]
@@ -62,23 +71,36 @@ panel_list <- lapply(1:nrow(matched), function(i) {
     seg      = to_num(row$seg),
     seg_name = row$seg_name,
     treat    = to_num(row$treat),
-    n_funded = nchar(gsub("0", "", row$fundedpattern)),   # 투자 횟수
+    n_funded = nchar(gsub("0", "", row$fundedpattern)),
     year     = years,
-    asset    = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S15000.자산총계")]])),
-    debt     = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18000.부채총계")]])),
-    equity   = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18900.자본총계")]])),
-    capital  = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18100.자본금")]])),
-    sales    = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S21100.총매출액")]])),
-    op_profit= sapply(years, function(y) to_num(row[[paste0(y, "/Annual S25000.영업이익(손실)")]])),
-    patent   = sapply(years, function(y) to_num(row[[paste0("p", y)]])),
-    export   = sapply(years, function(y) to_num(row[[paste0("exportamt", y)]])),
-    rdcost   = sapply(years, function(y) to_num(row[[paste0("rdcost", y)]])),
+    asset    = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S15000.자산총계"))),
+    debt     = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18000.부채총계"))),
+    equity   = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18900.자본총계"))),
+    capital  = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18100.자본금"))),
+    sales    = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S21100.총수익"))),
+    op_profit= sapply(years, function(y) safe_col(row, paste0(y, "/Annual S25000.영업이익(손실)"))),
+    patent   = sapply(years, function(y) safe_col(row, paste0("p", y))),
+    export   = sapply(years, function(y) safe_col(row, paste0("exportamt", y))),
+    rdcost   = sapply(years, function(y) safe_col(row, paste0("rdcost", y))),
+    lbcost   = sapply(years, function(y) safe_col(row, paste0("lbcost", y))),
+    mflbcost = sapply(years, function(y) safe_col(row, paste0("mflbcost", y))),
     stringsAsFactors = FALSE
   )
 })
 
 panel <- bind_rows(panel_list) %>% arrange(firm_id, year)
-cat("\n패널:", nrow(panel), "obs,", length(unique(panel$firm_id)), "firms\n")
+cat("패널:", nrow(panel), "obs /", length(unique(panel$firm_id)), "firms\n")
+
+# 어느 연도·컬럼에서 NA가 발생했는지 확인
+panel %>%
+  filter(year %in% c(2018, 2019)) %>%
+  summarise(
+    na_lbcost   = sum(is.na(lbcost)),
+    na_mflbcost = sum(is.na(mflbcost)),
+    na_rdcost   = sum(is.na(rdcost)),
+    na_export   = sum(is.na(export))
+  ) %>%
+  print()
 
 # ==============================================================================
 # 2. Log 변환
@@ -94,6 +116,8 @@ panel <- panel %>%
     log_opprofit= log_signed(op_profit),
     log_export  = log1p(pmax(export,   0, na.rm = TRUE)),
     log_rdcost  = log1p(pmax(rdcost,   0, na.rm = TRUE)),
+    log_lbcost  = log1p(pmax(lbcost, 0, na.rm = TRUE)),
+    log_mflbcost= log1p(pmax(mflbcost, 0, na.rm = TRUE)),
     post = ifelse(year >= 2020, 1, 0),
     did  = treat * post
   )
@@ -108,14 +132,16 @@ cat("\n", paste(rep("=", 80), collapse = ""), "\n")
 cat("  Simple DID (Pre=2019 vs Post=2024)\n")
 cat(paste(rep("=", 80), collapse = ""), "\n")
 
-# 분석할 변수 목록
 simple_vars <- data.frame(
-  label = c("ln자산", "ln매출", "ln부채", "ln자본금",
-            "ln영업이익", "ln(특허+1)", "ln(수출+1)", "ln(개발비+1)"),
-  var   = c("log_asset", "log_sales", "log_debt", "log_capital",
-            "log_opprofit", "log_patent", "log_export", "log_rdcost"),
+  label = c("ln자산",    "ln매출",    "ln부채",     "ln자본금",
+            "ln영업이익", "ln(특허+1)", "ln(수출+1)", "ln(개발비+1)",
+            "ln(인건비+1)", "ln(노무비+1)"),   # ← 2개 추가
+  var   = c("log_asset", "log_sales", "log_debt",    "log_capital",
+            "log_opprofit", "log_patent", "log_export", "log_rdcost",
+            "log_lbcost", "log_mflbcost"),        # ← 기존 그대로
   cat   = c("성장성", "성장성", "안정성", "성장성",
-            "수익성", "혁신성", "활동성", "혁신성"),
+            "수익성", "혁신성", "활동성", "혁신성",
+            "활동성", "활동성"),                   # ← 2개 추가
   stringsAsFactors = FALSE
 )
 
@@ -198,11 +224,12 @@ cat("\n=== Simple DID Wide ===\n")
 print(as.data.frame(simple_wide))
 
 # ==============================================================================
-# 4. 변수별 평행추세 검정 (pre-trend t-test: 2019→2020 기울기 차이)
+# 4. 변수별 평행추세 검정 (pre-trend t-test: 2018→2019 기울기 차이)
+# 2018->2019로 해야 함.
 # ==============================================================================
 
 cat("\n", paste(rep("=", 80), collapse = ""), "\n")
-cat("  평행추세 검정 (Pre-trend Test: 2019→2020 slope difference)\n")
+cat("  평행추세 검정 (Pre-trend Test: 2018→2019 slope difference)\n")
 cat(paste(rep("=", 80), collapse = ""), "\n")
 
 pt_all <- list()
@@ -221,8 +248,8 @@ for (s in c(1, 2, 3)) {
     label   <- simple_vars$label[v]
     
     # 2019→2020 차분
-    d19 <- sub %>% filter(year == 2019) %>% select(firm_id, treat, val19 = all_of(varname))
-    d20 <- sub %>% filter(year == 2020) %>% select(firm_id, val20 = all_of(varname))
+    d19 <- sub %>% filter(year == 2018) %>% select(firm_id, treat, val19 = all_of(varname))
+    d20 <- sub %>% filter(year == 2019) %>% select(firm_id, val20 = all_of(varname))
     d   <- left_join(d19, d20, by = "firm_id") %>%
       mutate(slope = val20 - val19) %>%
       filter(!is.na(slope))
@@ -456,3 +483,4 @@ write_xlsx(
 
 cat("\n✓ 저장 완료: DID_SimpleDID_PT.xlsx\n")
 cat("\n=== 분석 완료 ===\n")
+
