@@ -15,22 +15,24 @@ library(dplyr)
 library(writexl)
 library(stringr)
 
-#setwd("~/Downloads/Venture")
+setwd("/Users/ultra/PSM-DID")
 getwd()
 
 #===============================================================================
 # Valuesearch 기업 데이터 
+# 평행 추세 분석을 위해서 모든 데이터에 2018-2019년도 데이터 포함.
+# 2018 ~ 2024년도 데이터 
 #===============================================================================
-# 종업원 등 
-valuesearch1 <- read_excel("VALUESearch_20251213_Region.xlsx", skip = 1, col_types = "text")
-# 초기 데이터 
-valuesearch2 <- read_excel("VALUESearch20251207.xlsx", skip = 1, col_types = "text")
-# KSIC 중분류 및 기업 주소 등
-valuesearch3 <- read_excel("VALUESearch 20251221_KSIC_Mid.xlsx", skip = 1, col_types = "text")
-# R&D 비용 80-85
-valuesearch4 <- read_excel("ValueSearch_R&D_692080-85.xlsx", skip = 1, col_types = "text")
-# R&D 비용 86-88: 연구개발비/매출액 비율  
-valuesearch5 <- read_excel("ValueSearch_R&D_692086-88.xlsx", skip = 1, col_types = "text")
+# 1 업체 이름 주소 사업자 자산 총계
+valuesearch1 <- read_excel("1_VALUESearch_주소_자산총계20260315.xlsx", skip = 1, col_types = "text")
+# 2 총수익  총매출에서 이름이 변경됨. 
+valuesearch2 <- read_excel("2_VALUESearch_총수익20260315.xlsx", skip = 1, col_types = "text")
+# 3 연구개발비용계 
+valuesearch3 <- read_excel("3_VALUESearch_연구개발비용계20260315.xlsx", skip = 1, col_types = "text")
+# 4 연구 개발 비용 세부 항목 
+valuesearch4 <- read_excel("4_ValueSearch_연구개발비_비율20260315.xlsx", skip = 1, col_types = "text")
+# 5 인건비 노무비 
+valuesearch5 <- read_excel("5_ValueSearch_인건비_노무비20260315.xlsx", skip = 1, col_types = "text")
 
 head(valuesearch1)
 names(valuesearch1)
