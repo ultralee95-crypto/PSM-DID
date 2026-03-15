@@ -10,7 +10,7 @@
 
 packages <- c("readxl", "dplyr", "tidyr", "ggplot2",
               "sandwich", "lmtest", "writexl",
-              "gridExtra", "grid", "scales")
+              "gridExtra", "grid", "scales", "car")
 
 for (pkg in packages) {
   if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
@@ -251,6 +251,212 @@ for (s in c(1, 2, 3)) {
 }
 
 did_result <- bind_rows(did_all) %>% as.data.frame()
+
+# ==============================================================================
+# 4-B. 0회 Reference 더미 모형
+#      lm(diff ~ n_funded_f)  — 0회(통제)를 기준(ref)으로
+#      n_funded_f1 = 1회 vs 0회 DID (절대 효과)
+#      n_funded_f2 = 2회 vs 0회 DID (절대 효과)
+#      n_funded_f3 = 3회 vs 0회 DID (절대 효과)
+#
+#  ▷ 핵심 해석:
+#    • 0회를 Reference로 하면 각 횟수의 절대 효과와 횟수 간 상대적 차이를
+#      단일 회귀에서 동시에 파악할 수 있어 3회 Reference보다 훨씬 풍부한 해석 가능
+#    • linearHypothesis()로 횟수 간 이질성 F검정(3v1, 3v2, 2v1, 전체) 수행
+# ==============================================================================
+
+cat("\n", paste(rep("=", 80), collapse = ""), "\n")
+cat("  [4-B] 0회 Reference 더미 모형 — 투자 횟수별 절대 효과 + 횟수간 F검정\n")
+cat("        lm(diff ~ n_funded_f),  ref = '0'\n")
+cat(paste(rep("=", 80), collapse = ""), "\n")
+
+# ── 4그룹 Wide 데이터 생성 함수 ──────────────────────────────────────────────
+# panel에서 pre(2019)/post(2024) 차이(diff)를 계산하여
+# 투자 횟수(nf) 그룹의 wide 데이터프레임을 반환
+make_wide4 <- function(seg_id, nf) {
+  pre  <- panel %>% filter(seg == seg_id, n_funded == nf, year == 2019)
+  post <- panel %>% filter(seg == seg_id, n_funded == nf, year == 2024)
+  
+  if (nrow(pre) == 0) return(NULL)
+  
+  pre %>%
+    select(firm_id) %>%
+    left_join(
+      pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
+        rename_with(~ paste0(.x, "_pre"), -firm_id),
+      by = "firm_id"
+    ) %>%
+    left_join(
+      post %>% select(firm_id, all_of(ana_vars$var)) %>%
+        rename_with(~ paste0(.x, "_post"), -firm_id),
+      by = "firm_id"
+    ) %>%
+    mutate(n_funded = as.character(nf))
+}
+
+dummy_all <- list()
+
+for (s in c(1, 2, 3)) {
+  seg_name <- seg_labels[as.character(s)]
+  
+  # 0회/1회/2회/3회 wide 생성 후 합치기
+  w_list <- lapply(0:3, function(nf) make_wide4(s, nf))
+  w_list <- Filter(Negate(is.null), w_list)
+  
+  # 각 그룹의 표본 수 확인
+  n_counts <- sapply(0:3, function(nf) {
+    sum(panel$seg == s & panel$n_funded == nf & panel$year == 2019)
+  })
+  names(n_counts) <- paste0(0:3, "회")
+  cat(sprintf("\n[%s] 그룹별 표본: %s\n", seg_name,
+              paste(names(n_counts), n_counts, sep="=", collapse=", ")))
+  
+  combined4 <- bind_rows(w_list) %>%
+    mutate(n_funded_f = relevel(factor(n_funded), ref = "0"))
+  
+  # 유효한 투자 횟수 파악 (표본 >= 5)
+  valid_nf <- names(n_counts)[n_counts >= 5]
+  has_n3   <- "3회" %in% valid_nf  # 3회 존재 여부
+  
+  cat(sprintf("  %-16s %10s %10s %10s %10s %10s %10s %10s %8s\n",
+              "변수",
+              "Intercept", "1회_DID", "2회_DID", "3회_DID",
+              "p_1회", "p_2회", "p_3회", "F이질성"))
+  cat("  ", paste(rep("-", 106), collapse = ""), "\n")
+  
+  seg_dummy_rows <- list()
+  
+  for (v in 1:nrow(ana_vars)) {
+    col_pre  <- paste0(ana_vars$var[v], "_pre")
+    col_post <- paste0(ana_vars$var[v], "_post")
+    
+    # diff 계산
+    combined4$diff <- combined4[[col_post]] - combined4[[col_pre]]
+    
+    # 유효 obs 수 확인
+    sub_df <- combined4 %>% filter(!is.na(diff))
+    
+    # 단일 회귀: 0회 기준 더미 모형
+    reg4 <- tryCatch(
+      lm(diff ~ n_funded_f, data = sub_df),
+      error = function(e) NULL
+    )
+    
+    if (is.null(reg4)) {
+      cat(sprintf("  %-16s  [회귀 실패]\n", ana_vars$label[v]))
+      next
+    }
+    
+    coef_sum <- summary(reg4)$coefficients
+    
+    # 계수 추출 (없으면 NA)
+    get_coef <- function(nm, col) {
+      if (nm %in% rownames(coef_sum)) coef_sum[nm, col] else NA_real_
+    }
+    
+    intercept <- get_coef("(Intercept)",  "Estimate")   # 0회 평균 diff
+    did_1     <- get_coef("n_funded_f1",  "Estimate")   # 1회 - 0회
+    did_2     <- get_coef("n_funded_f2",  "Estimate")   # 2회 - 0회
+    did_3     <- get_coef("n_funded_f3",  "Estimate")   # 3회 - 0회
+    p_1       <- get_coef("n_funded_f1",  "Pr(>|t|)")
+    p_2       <- get_coef("n_funded_f2",  "Pr(>|t|)")
+    p_3       <- get_coef("n_funded_f3",  "Pr(>|t|)")
+    
+    # 전체 이질성 F검정 (귀무: 1회=2회=3회=0회)
+    # 실제 존재하는 계수만으로 가설 구성
+    avail_dummies <- intersect(c("n_funded_f1", "n_funded_f2", "n_funded_f3"),
+                               rownames(coef_sum))
+    
+    p_ftest <- NA_real_
+    if (length(avail_dummies) >= 1) {
+      ft <- tryCatch(
+        linearHypothesis(reg4, paste(avail_dummies, "= 0")),
+        error = function(e) NULL
+      )
+      if (!is.null(ft)) p_ftest <- ft$`Pr(>F)`[2]
+    }
+    
+    # 횟수 간 쌍별 검정 (linearHypothesis)
+    get_pair_p <- function(h_str) {
+      tryCatch({
+        lh <- linearHypothesis(reg4, h_str)
+        lh$`Pr(>F)`[2]
+      }, error = function(e) NA_real_)
+    }
+    
+    p_3v1 <- if (!is.na(did_3) && !is.na(did_1))
+      get_pair_p("n_funded_f3 - n_funded_f1 = 0") else NA_real_
+    p_3v2 <- if (!is.na(did_3) && !is.na(did_2))
+      get_pair_p("n_funded_f3 - n_funded_f2 = 0") else NA_real_
+    p_2v1 <- if (!is.na(did_2) && !is.na(did_1))
+      get_pair_p("n_funded_f2 - n_funded_f1 = 0") else NA_real_
+    
+    cat(sprintf(
+      "  %-16s %10.4f %10s %10s %10s %10s %10s %10s %8s\n",
+      ana_vars$label[v],
+      safe_num(intercept),
+      ifelse(is.na(did_1), "   -   ",
+             sprintf("%6.4f%s", did_1, sig_mark(p_1))),
+      ifelse(is.na(did_2), "   -   ",
+             sprintf("%6.4f%s", did_2, sig_mark(p_2))),
+      ifelse(is.na(did_3), "   -   ",
+             sprintf("%6.4f%s", did_3, sig_mark(p_3))),
+      ifelse(is.na(p_1), "-", sprintf("%.4f", p_1)),
+      ifelse(is.na(p_2), "-", sprintf("%.4f", p_2)),
+      ifelse(is.na(p_3), "-", sprintf("%.4f", p_3)),
+      ifelse(is.na(p_ftest), "-", sig_mark(p_ftest))
+    ))
+    
+    # 쌍별 p값 별도 출력
+    cat(sprintf(
+      "  %-16s  쌍별검정: 3v1=%-7s 3v2=%-7s 2v1=%-7s\n",
+      "",
+      ifelse(is.na(p_3v1), "-", sprintf("%.4f", p_3v1)),
+      ifelse(is.na(p_3v2), "-", sprintf("%.4f", p_3v2)),
+      ifelse(is.na(p_2v1), "-", sprintf("%.4f", p_2v1))
+    ))
+    
+    seg_dummy_rows[[v]] <- data.frame(
+      부문        = seg_name,
+      카테고리    = ana_vars$cat[v],
+      변수        = ana_vars$label[v],
+      N_0회       = n_counts["0회"],
+      N_1회       = n_counts["1회"],
+      N_2회       = n_counts["2회"],
+      N_3회       = n_counts["3회"],
+      통제평균diff = safe_num(intercept),
+      DID_1회     = safe_num(did_1),   # 1회 vs 0회
+      DID_2회     = safe_num(did_2),   # 2회 vs 0회
+      DID_3회     = safe_num(did_3),   # 3회 vs 0회
+      p_1회       = safe_num(p_1),
+      p_2회       = safe_num(p_2),
+      p_3회       = safe_num(p_3),
+      sig_1회     = safe_str(sig_mark(p_1)),
+      sig_2회     = safe_str(sig_mark(p_2)),
+      sig_3회     = safe_str(sig_mark(p_3)),
+      p_F이질성   = safe_num(p_ftest),
+      sig_F이질성 = safe_str(sig_mark(p_ftest)),
+      p_3v1       = safe_num(p_3v1),   # 3회 vs 1회
+      p_3v2       = safe_num(p_3v2),   # 3회 vs 2회
+      p_2v1       = safe_num(p_2v1),   # 2회 vs 1회
+      stringsAsFactors = FALSE
+    )
+  }
+  
+  dummy_all[[seg_name]] <- bind_rows(seg_dummy_rows)
+}
+
+dummy_result <- bind_rows(dummy_all) %>% as.data.frame()
+
+cat("\n=== [4-B] 더미 모형 결과 요약 ===\n")
+cat("  해석 방법:\n")
+cat("  • 통제평균diff  = 통제(0회) 집단의 2019→2024 평균 변화량\n")
+cat("  • DID_1회/2회/3회 = 각 횟수 집단이 통제 대비 추가로 달성한 변화량\n")
+cat("  • p_F이질성   = 1회=2회=3회=0 귀무 하에서의 F검정 유의성\n")
+cat("  • p_3v1/3v2/2v1 = 쌍별 횟수 간 효과 차이 t검정\n")
+print(dummy_result[, c("부문","변수","통제평균diff",
+                       "DID_1회","sig_1회","DID_2회","sig_2회",
+                       "DID_3회","sig_3회","sig_F이질성")])
 
 # ==============================================================================
 # 5. Wide 비교표 — 투자횟수 × 변수  (부문별 파일로 분리)
@@ -581,7 +787,8 @@ cat("✓ ParallelTrends_Nfunded_Heatmap.png 저장\n")
 # Wide 시트 3개 (부문별)
 excel_sheets <- list(
   DID_결과_전체    = did_result,
-  평행추세_결과    = pt_result,
+  더미모형_0회기준    = dummy_result,   # [4-B] 추가
+    평행추세_결과    = pt_result,
   Wide_소재        = wide_list[["소재"]],
   Wide_부품        = wide_list[["부품"]],
   Wide_장비        = wide_list[["장비"]]
@@ -590,5 +797,6 @@ excel_sheets <- list(
 write_xlsx(excel_sheets, "DID_Nfunded_Seg.xlsx")
 
 cat("\n✓ 저장 완료: DID_Nfunded_Seg.xlsx\n")
-cat("  시트: DID_결과_전체 / 평행추세_결과 / Wide_소재 / Wide_부품 / Wide_장비\n")
+cat("  시트: DID_결과_전체 / 더미모형_0회기준 / 평행추세_결과\n")
+cat("        Wide_소재 / Wide_부품 / Wide_장비\n")
 cat("\n=== 분석 완료 ===\n")
