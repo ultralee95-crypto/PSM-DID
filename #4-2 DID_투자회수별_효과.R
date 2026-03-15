@@ -50,8 +50,17 @@ sig_mark <- function(p) {
 # ==============================================================================
 # 1. Wide → Long 패널 변환 (2019–2024)
 # ==============================================================================
+# PSM 에서 2019년 결측치는 없앴는데,  2018년도 결측치가 발생 한다. 
 
-years <- 2019:2024
+safe_col <- function(row, col_name) {
+  if (col_name %in% names(row) && !is.null(row[[col_name]])) {
+    to_num(row[[col_name]])
+  } else {
+    NA_real_
+  }
+}
+
+years <- 2018:2024
 
 panel_list <- lapply(1:nrow(matched), function(i) {
   row <- matched[i, ]
@@ -67,18 +76,23 @@ panel_list <- lapply(1:nrow(matched), function(i) {
     n_funded   = n_funded,               # 0 / 1 / 2 / 3
     fundedpattern = pattern,
     year       = years,
-    asset      = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S15000.자산총계")]])),
-    debt       = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18000.부채총계")]])),
-    equity     = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18900.자본총계")]])),
-    capital    = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S18100.자본금")]])),
-    sales      = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S21100.총매출액")]])),
-    op_profit  = sapply(years, function(y) to_num(row[[paste0(y, "/Annual S25000.영업이익(손실)")]])),
-    patent     = sapply(years, function(y) to_num(row[[paste0("p", y)]])),
-    export     = sapply(years, function(y) to_num(row[[paste0("exportamt", y)]])),
-    rdcost     = sapply(years, function(y) to_num(row[[paste0("rdcost", y)]])),
+    # ── 모든 컬럼 safe_col 적용 — 2018 연도 컬럼 없어도 NA_real_ 반환 ──────────
+    asset      = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S15000.자산총계"))),
+    debt       = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18000.부채총계"))),
+    equity     = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18900.자본총계"))),
+    capital    = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18100.자본금"))),
+    sales      = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S21100.총수익"))),
+    op_profit  = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S25000.영업이익(손실)"))),
+    patent     = sapply(years, function(y) safe_col(row, paste0("p", y))),
+    export     = sapply(years, function(y) safe_col(row, paste0("exportamt", y))),
+    rdcost     = sapply(years, function(y) safe_col(row, paste0("rdcost", y))),
+    lbcost     = sapply(years, function(y) safe_col(row, paste0("lbcost",   y))),
+    mflbcost   = sapply(years, function(y) safe_col(row, paste0("mflbcost", y))),
+    # ──────────────────────────────────────────────────────────────────────────
     stringsAsFactors = FALSE
   )
 })
+
 
 panel <- bind_rows(panel_list) %>% arrange(firm_id, year)
 cat("\n패널:", nrow(panel), "obs /", length(unique(panel$firm_id)), "firms\n")
@@ -116,13 +130,16 @@ print(
 # 3. 분석 변수 정의
 # ==============================================================================
 
-ana_vars <- data.frame(
-  label = c("ln자산",   "ln매출",    "ln부채",   "ln자본금",
-            "ln영업이익", "ln(특허+1)", "ln(수출+1)", "ln(개발비+1)"),
-  var   = c("log_asset", "log_sales", "log_debt", "log_capital",
-            "log_opprofit", "log_patent", "log_export", "log_rdcost"),
+simple_vars <- data.frame(
+  label = c("ln자산",    "ln매출",    "ln부채",     "ln자본금",
+            "ln영업이익", "ln(특허+1)", "ln(수출+1)", "ln(개발비+1)",
+            "ln(인건비+1)", "ln(노무비+1)"),   # ← 2개 추가
+  var   = c("log_asset", "log_sales", "log_debt",    "log_capital",
+            "log_opprofit", "log_patent", "log_export", "log_rdcost",
+            "log_lbcost", "log_mflbcost"),        # ← 기존 그대로
   cat   = c("성장성", "성장성", "안정성", "성장성",
-            "수익성", "혁신성", "활동성", "혁신성"),
+            "수익성", "혁신성", "활동성", "혁신성",
+            "활동성", "활동성"),                   # ← 2개 추가
   stringsAsFactors = FALSE
 )
 
@@ -492,11 +509,11 @@ for (s in c(1, 2, 3)) {
 }
 
 # ==============================================================================
-# 6. 평행추세 검정 — 투자횟수별 × 부문별 (2019→2020 기울기 차이)
+# 6. 평행추세 검정 — 투자횟수별 × 부문별 (2018→2019 기울기 차이)
 # ==============================================================================
 
 cat("\n", paste(rep("=", 80), collapse = ""), "\n")
-cat("  평행추세 검정 (Pre-trend: 2019→2020 slope t-test)\n")
+cat("  평행추세 검정 (Pre-trend: 2018→2019 slope t-test)\n")
 cat(paste(rep("=", 80), collapse = ""), "\n")
 
 pt_all <- list()
@@ -504,14 +521,14 @@ pt_all <- list()
 for (s in c(1, 2, 3)) {
   seg_name <- seg_labels[as.character(s)]
   
-  # 통제집단 2019→2020 차분
+  # 통제집단 2018→2019 차분
   ctrl_sub <- panel %>% filter(seg == s, n_funded == 0)
+  ctrl_d18 <- ctrl_sub %>% filter(year == 2018) %>%
+    select(firm_id, all_of(ana_vars$var))
   ctrl_d19 <- ctrl_sub %>% filter(year == 2019) %>%
     select(firm_id, all_of(ana_vars$var))
-  ctrl_d20 <- ctrl_sub %>% filter(year == 2020) %>%
-    select(firm_id, all_of(ana_vars$var))
-  ctrl_diff <- left_join(ctrl_d19, ctrl_d20, by = "firm_id",
-                         suffix = c("_19", "_20"))
+  ctrl_diff <- left_join(ctrl_d18, ctrl_d19, by = "firm_id",
+                         suffix = c("_18", "_19"))
   
   for (n in n_funded_levels) {
     n_label <- n_funded_labels[as.character(n)]
@@ -519,12 +536,13 @@ for (s in c(1, 2, 3)) {
     
     if (nrow(tr_sub %>% filter(year == 2019)) < 5) next
     
+    # 처치집단도 동일하게 2018→2019 차분
+    tr_d18  <- tr_sub %>% filter(year == 2018) %>%
+      select(firm_id, all_of(ana_vars$var))
     tr_d19  <- tr_sub %>% filter(year == 2019) %>%
       select(firm_id, all_of(ana_vars$var))
-    tr_d20  <- tr_sub %>% filter(year == 2020) %>%
-      select(firm_id, all_of(ana_vars$var))
-    tr_diff <- left_join(tr_d19, tr_d20, by = "firm_id",
-                         suffix = c("_19", "_20"))
+    tr_diff <- left_join(tr_d18, tr_d19, by = "firm_id",
+                         suffix = c("_18", "_19"))
     
     cat(sprintf("\n─── %s | %s ───\n", seg_name, n_label))
     cat(sprintf("  %-16s %8s %8s  %s\n", "변수", "t값", "p값", "판정"))
@@ -534,10 +552,11 @@ for (s in c(1, 2, 3)) {
       vname <- ana_vars$var[v]
       label <- ana_vars$label[v]
       
-      tr_slope <- tr_diff[[paste0(vname, "_20")]] -
-        tr_diff[[paste0(vname, "_19")]]
-      ct_slope <- ctrl_diff[[paste0(vname, "_20")]] -
-        ctrl_diff[[paste0(vname, "_19")]]
+      # 기울기 = 2019 - 2018 (처치·통제 모두 동일 기준)
+      tr_slope <- tr_diff[[paste0(vname, "_19")]] -
+        tr_diff[[paste0(vname, "_18")]]
+      ct_slope <- ctrl_diff[[paste0(vname, "_19")]] -
+        ctrl_diff[[paste0(vname, "_18")]]
       
       tr_slope <- tr_slope[!is.na(tr_slope)]
       ct_slope <- ct_slope[!is.na(ct_slope)]
