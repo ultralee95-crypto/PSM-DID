@@ -97,6 +97,27 @@ table(sobujang$gfundvol2020)
 table(sobujang$gfundvol2021)
 table(sobujang$gfundvol2022)
 
+# 사업명 
+sobujang$fundname2020 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2020, ntis$사업명, 0)
+sobujang$fundname2021 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2021, ntis$사업명, 0)
+sobujang$fundname2022 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2022, ntis$사업명, 0)
+
+# 결과 확인 (선택사항)
+table(sobujang$fundname2020)
+table(sobujang$fundname2021)
+table(sobujang$fundname2022)
+
+# 부처명 
+sobujang$gov2020 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2020, ntis$부처명, 0)
+sobujang$gov2021 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2021, ntis$부처명, 0)
+sobujang$gov2022 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2022, ntis$부처명, 0)
+
+# 결과 확인 (선택사항)
+table(sobujang$gov2020)
+table(sobujang$gov2021)
+table(sobujang$gov2022)
+
+#head(ntis)
 #===============================================================================
 # 펀딩 조합별 기업 수 확인
 sobujang <- sobujang %>%
