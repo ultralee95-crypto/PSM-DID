@@ -1,3 +1,5 @@
+#checkin
+
 install.packages("readxl")      # 엑셀 읽기
 install.packages("dplyr")       # 데이터 조작
 install.packages("tidyr")       # 데이터 정리
