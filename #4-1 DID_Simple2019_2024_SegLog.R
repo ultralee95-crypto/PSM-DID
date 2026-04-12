@@ -3,6 +3,8 @@
 # ① Simple DID (2019 vs 2024)  ② 변수별 평행추세 검정 + 시각화
 # 수출금액, 개발비, 특허 포함 | 20260310 수정
 # checkin
+#20260412 : 결과 변수에서 자본금 삭제. OPM 로그변환 하지 않음. 노무비 삭제
+#20260412 : Doubly Robust DID 추가 (자기자신 사전값 제외, 나머지 7개 통제)
 # ==============================================================================
 
 packages <- c("readxl", "dplyr", "tidyr", "ggplot2", "broom", "sandwich",
@@ -77,14 +79,14 @@ panel_list <- lapply(1:nrow(matched), function(i) {
     asset    = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S15000.자산총계"))),
     debt     = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18000.부채총계"))),
     equity   = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18900.자본총계"))),
-    capital  = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18100.자본금"))),
+    #capital  = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18100.자본금"))),
     sales    = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S21100.총수익"))),
-    op_profit= sapply(years, function(y) safe_col(row, paste0(y, "/Annual S25000.영업이익(손실)"))),
+    op_profit= sapply(years, function(y) safe_col(row, paste0("opm", y))),
     patent   = sapply(years, function(y) safe_col(row, paste0("p", y))),
     export   = sapply(years, function(y) safe_col(row, paste0("exportamt", y))),
     rdcost   = sapply(years, function(y) safe_col(row, paste0("rdcost", y))),
     lbcost   = sapply(years, function(y) safe_col(row, paste0("lbcost", y))),
-    mflbcost = sapply(years, function(y) safe_col(row, paste0("mflbcost", y))),
+    #mflbcost = sapply(years, function(y) safe_col(row, paste0("mflbcost", y))),
     stringsAsFactors = FALSE
   )
 })
@@ -97,7 +99,7 @@ panel %>%
   filter(year %in% c(2018, 2019)) %>%
   summarise(
     na_lbcost   = sum(is.na(lbcost)),
-    na_mflbcost = sum(is.na(mflbcost)),
+    #na_mflbcost = sum(is.na(mflbcost)),
     na_rdcost   = sum(is.na(rdcost)),
     na_export   = sum(is.na(export))
   ) %>%
@@ -112,13 +114,13 @@ panel <- panel %>%
     log_patent  = log1p(pmax(patent,   0, na.rm = TRUE)),
     log_asset   = ifelse(!is.na(asset)  & asset  > 0, log(asset),  NA),
     log_debt    = log1p(pmax(debt,     0, na.rm = TRUE)),
-    log_capital = log1p(pmax(capital,  0, na.rm = TRUE)),
+    #log_capital = log1p(pmax(capital,  0, na.rm = TRUE)),
     log_sales   = ifelse(!is.na(sales)  & sales  > 0, log(sales),  NA),
-    log_opprofit= log_signed(op_profit),
+    #log_opprofit= log_signed(op_profit),
     log_export  = log1p(pmax(export,   0, na.rm = TRUE)),
     log_rdcost  = log1p(pmax(rdcost,   0, na.rm = TRUE)),
     log_lbcost  = log1p(pmax(lbcost, 0, na.rm = TRUE)),
-    log_mflbcost= log1p(pmax(mflbcost, 0, na.rm = TRUE)),
+    #log_mflbcost= log1p(pmax(mflbcost, 0, na.rm = TRUE)),
     post = ifelse(year >= 2020, 1, 0),
     did  = treat * post
   )
@@ -134,19 +136,19 @@ cat("  Simple DID (Pre=2019 vs Post=2024)\n")
 cat(paste(rep("=", 80), collapse = ""), "\n")
 
 simple_vars <- data.frame(
-  label = c("ln자산",    "ln매출",    "ln부채",     "ln자본금",
-            "ln영업이익", "ln(특허+1)", "ln(수출+1)", "ln(개발비+1)",
-            "ln(인건비+1)", "ln(노무비+1)"),   # ← 2개 추가
-  var   = c("log_asset", "log_sales", "log_debt",    "log_capital",
-            "log_opprofit", "log_patent", "log_export", "log_rdcost",
-            "log_lbcost", "log_mflbcost"),        # ← 기존 그대로
-  cat   = c("성장성", "성장성", "안정성", "성장성",
-            "수익성", "혁신성", "활동성", "혁신성",
-            "활동성", "활동성"),                   # ← 2개 추가
+  label = c("ln자산",    "ln매출",    "ln부채", "OPM", 
+            "ln(특허+1)", "ln(수출+1)", "ln(개발비+1)",
+            "ln(인건비+1)"),   
+  var   = c("log_asset", "log_sales", "log_debt",
+            "op_profit", "log_patent", "log_export", "log_rdcost",
+            "log_lbcost"),       
+  cat   = c("성장성", "성장성", "안정성", "수익성", "혁신성", "활동성", "혁신성",
+            "활동성"),              
   stringsAsFactors = FALSE
 )
 
 simple_all <- list()
+robust_all <- list()
 
 for (s in c(1, 2, 3)) {
   seg_name <- seg_labels[as.character(s)]
@@ -172,6 +174,8 @@ for (s in c(1, 2, 3)) {
   cat("  ", paste(rep("-", 85), collapse = ""), "\n")
   
   seg_rows <- list()
+  seg_rows_robust <- list()
+  
   for (v in 1:nrow(simple_vars)) {
     col_pre  <- paste0(simple_vars$var[v], "_pre")
     col_post <- paste0(simple_vars$var[v], "_post")
@@ -182,15 +186,36 @@ for (s in c(1, 2, 3)) {
     c_pre  <- mean(sub_wide[[col_pre]] [sub_wide$treat == 0], na.rm = TRUE)
     c_post <- mean(sub_wide[[col_post]][sub_wide$treat == 0], na.rm = TRUE)
     
+    
+    # (A) Simple DID — 기존과 동일
     reg    <- lm(diff ~ treat, data = sub_wide)
     did_est<- coef(reg)["treat"]
     t_val  <- summary(reg)$coefficients["treat", "t value"]
     p_val  <- summary(reg)$coefficients["treat", "Pr(>|t|)"]
     
-    cat(sprintf("  %-16s %10.4f %10.4f %10.4f %10.4f %10.4f %8.3f %5s\n",
-                simple_vars$label[v],
-                safe_num(t_pre), safe_num(t_post), safe_num(c_pre), safe_num(c_post),
-                safe_num(did_est), safe_num(t_val), safe_str(sig_mark(p_val))))
+    # (B) Doubly Robust - 종속변수 자기 자신을 제외한 나머지를 통제변수 추가
+    cov_pre <- setdiff(paste0(simple_vars$var, "_pre"), col_pre)
+    fmla    <- as.formula(paste("diff ~ treat +", paste(cov_pre, collapse = " + ")))
+    reg_dr  <- lm(fmla, data = sub_wide)
+    did_dr  <- coef(reg_dr)["treat"]
+    t_dr    <- summary(reg_dr)$coefficients["treat", "t value"]
+    p_dr    <- summary(reg_dr)$coefficients["treat", "Pr(>|t|)"]
+    
+    cat(sprintf("    [DR 통제변수] "))
+    dr_coefs <- summary(reg_dr)$coefficients
+    for (cv in cov_pre) {
+      if (cv %in% rownames(dr_coefs)) {
+        cv_b <- dr_coefs[cv, "Estimate"]
+        cv_p <- dr_coefs[cv, "Pr(>|t|)"]
+        cat(sprintf("%s=%.3f(%s) ", cv, cv_b, sig_mark(cv_p)))
+      }
+    }
+    cat("\n")
+    
+    #cat(sprintf("  %-16s %10.4f %10.4f %10.4f %10.4f %10.4f %8.3f %5s\n",
+    #            simple_vars$label[v],
+    #            safe_num(t_pre), safe_num(t_post), safe_num(c_pre), safe_num(c_post),
+    #            safe_num(did_est), safe_num(t_val), safe_str(sig_mark(p_val))))
     
     seg_rows[[v]] <- data.frame(
       부문 = seg_name, 카테고리 = simple_vars$cat[v],
@@ -201,11 +226,25 @@ for (s in c(1, 2, 3)) {
       유의성 = sig_mark(p_val),
       stringsAsFactors = FALSE
     )
+    
+    # 루프 안에서 각 변수마다 추가:
+    seg_rows_robust[[v]] <- data.frame(
+      부문 = seg_name, 카테고리 = simple_vars$cat[v],
+      변수 = simple_vars$label[v],
+      DID_simple = did_est, p_simple = p_val, sig_simple = sig_mark(p_val),
+      DID_DR = did_dr, t_DR = t_dr, p_DR = p_dr, sig_DR = sig_mark(p_dr),
+      stringsAsFactors = FALSE
+    )
+
   }
+  
   simple_all[[seg_name]] <- bind_rows(seg_rows)
+  robust_all[[seg_name]] <- bind_rows(seg_rows_robust)
+  
 }
 
 simple_result <- bind_rows(simple_all) %>% as.data.frame()
+robust_result <- bind_rows(robust_all) %>% as.data.frame()
 
 # Wide format 출력
 simple_wide <- simple_result %>%
@@ -224,6 +263,22 @@ simple_wide <- simple_result %>%
 cat("\n=== Simple DID Wide ===\n")
 print(as.data.frame(simple_wide))
 
+# --- Wide format: Doubly Robust DID ---
+robust_wide <- robust_result %>%
+  select(변수, 부문, DID_DR, p_DR, sig_DR) %>%
+  pivot_wider(
+    names_from  = 부문,
+    values_from = c(DID_DR, p_DR, sig_DR),
+    names_glue  = "{부문}_{.value}"
+  ) %>%
+  select(변수,
+         소재_DID_DR, 소재_p_DR, 소재_sig_DR,
+         부품_DID_DR, 부품_p_DR, 부품_sig_DR,
+         장비_DID_DR, 장비_p_DR, 장비_sig_DR) %>%
+  as.data.frame()
+
+cat("\n=== Doubly Robust DID Wide ===\n")
+print(robust_wide)
 # ==============================================================================
 # 4. 변수별 평행추세 검정 (pre-trend t-test: 2018→2019 기울기 차이)
 # 2018->2019로 해야 함.
@@ -477,6 +532,8 @@ write_xlsx(
   list(
     Simple_DID        = simple_result,
     Simple_DID_Wide   = simple_wide,
+    DoublyRobust_DID  = robust_result,
+    DoublyRobust_Wide = robust_wide,
     ParallelTrends    = pt_result
   ),
   "DID_SimpleDID_PT.xlsx"
