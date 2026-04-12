@@ -1,5 +1,11 @@
+# ============================================================
+# History
 # checkin
-
+# 202604112 
+#: change to 연구비합계 from 민간연구비_소계
+# change to 노동비용 (lbcost) = 인건비 + 노무비
+# add OPM (Operation Margin), OPM 결측치 제거 추가.
+# ============================================================
 
 install.packages("readxl")      # 엑셀 읽기
 install.packages("dplyr")       # 데이터 조작
@@ -91,9 +97,9 @@ table(sobujang$fund2021)
 table(sobujang$fund2022)
 
 # 정부투자금 
-sobujang$gfundvol2020 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2020, ntis$민간연구비_소계, 0)
-sobujang$gfundvol2021 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2021, ntis$민간연구비_소계, 0)
-sobujang$gfundvol2022 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2022, ntis$민간연구비_소계, 0)
+sobujang$gfundvol2020 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2020, ntis$연구비합계, 0)
+sobujang$gfundvol2021 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2021, ntis$연구비합계, 0)
+sobujang$gfundvol2022 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2022, ntis$연구비합계, 0)
 
 # 결과 확인 (선택사항)
 table(sobujang$gfundvol2020)
@@ -434,13 +440,13 @@ merged_data <- merged_data %>%
     rdcost2024 = ifelse(is.na(as.numeric(`2024/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2024/Annual 692084.연구개발비용-연구개발비용계`)),
     
     # ── 인건비 (NA → 0 처리) ──
-    lbcost2018 = ifelse(is.na(as.numeric(`2018/Annual 124100.인건비`)), 0, as.numeric(`2018/Annual 124100.인건비`)),
-    lbcost2019 = ifelse(is.na(as.numeric(`2019/Annual 124100.인건비`)), 0, as.numeric(`2019/Annual 124100.인건비`)),
-    lbcost2020 = ifelse(is.na(as.numeric(`2020/Annual 124100.인건비`)), 0, as.numeric(`2020/Annual 124100.인건비`)),
-    lbcost2021 = ifelse(is.na(as.numeric(`2021/Annual 124100.인건비`)), 0, as.numeric(`2021/Annual 124100.인건비`)),
-    lbcost2022 = ifelse(is.na(as.numeric(`2022/Annual 124100.인건비`)), 0, as.numeric(`2022/Annual 124100.인건비`)),
-    lbcost2023 = ifelse(is.na(as.numeric(`2023/Annual 124100.인건비`)), 0, as.numeric(`2023/Annual 124100.인건비`)),
-    lbcost2024 = ifelse(is.na(as.numeric(`2024/Annual 124100.인건비`)), 0, as.numeric(`2024/Annual 124100.인건비`)),
+    pay2018 = ifelse(is.na(as.numeric(`2018/Annual 124100.인건비`)), 0, as.numeric(`2018/Annual 124100.인건비`)),
+    pay2019 = ifelse(is.na(as.numeric(`2019/Annual 124100.인건비`)), 0, as.numeric(`2019/Annual 124100.인건비`)),
+    pay2020 = ifelse(is.na(as.numeric(`2020/Annual 124100.인건비`)), 0, as.numeric(`2020/Annual 124100.인건비`)),
+    pay2021 = ifelse(is.na(as.numeric(`2021/Annual 124100.인건비`)), 0, as.numeric(`2021/Annual 124100.인건비`)),
+    pay2022 = ifelse(is.na(as.numeric(`2022/Annual 124100.인건비`)), 0, as.numeric(`2022/Annual 124100.인건비`)),
+    pay2023 = ifelse(is.na(as.numeric(`2023/Annual 124100.인건비`)), 0, as.numeric(`2023/Annual 124100.인건비`)),
+    pay2024 = ifelse(is.na(as.numeric(`2024/Annual 124100.인건비`)), 0, as.numeric(`2024/Annual 124100.인건비`)),
     
     # ── 노무비 (NA → 0 처리) ──
     mflbcost2018 = ifelse(is.na(as.numeric(`2018/Annual 152000.노무비`)), 0, as.numeric(`2018/Annual 152000.노무비`)),
@@ -449,18 +455,37 @@ merged_data <- merged_data %>%
     mflbcost2021 = ifelse(is.na(as.numeric(`2021/Annual 152000.노무비`)), 0, as.numeric(`2021/Annual 152000.노무비`)),
     mflbcost2022 = ifelse(is.na(as.numeric(`2022/Annual 152000.노무비`)), 0, as.numeric(`2022/Annual 152000.노무비`)),
     mflbcost2023 = ifelse(is.na(as.numeric(`2023/Annual 152000.노무비`)), 0, as.numeric(`2023/Annual 152000.노무비`)),
-    mflbcost2024 = ifelse(is.na(as.numeric(`2024/Annual 152000.노무비`)), 0, as.numeric(`2024/Annual 152000.노무비`))
+    mflbcost2024 = ifelse(is.na(as.numeric(`2024/Annual 152000.노무비`)), 0, as.numeric(`2024/Annual 152000.노무비`)),
+    
+    # ── 노동비용 (NA → 0 처리) ──
+    lbcost2018 = pay2018 + mflbcost2018,
+    lbcost2019 = pay2019 + mflbcost2019,
+    lbcost2020 = pay2020 + mflbcost2020,
+    lbcost2021 = pay2021 + mflbcost2021,
+    lbcost2022 = pay2022 + mflbcost2022,
+    lbcost2023 = pay2023 + mflbcost2023,
+    lbcost2024 = pay2024 + mflbcost2024,
+    
+    # ── 영업 이익률 OPM : Operation Margin %
+    opm2018 = as.numeric(`2018/Annual S25000.영업이익(손실)`) / as.numeric(`2018/Annual S21100.총수익`),
+    opm2019 = as.numeric(`2019/Annual S25000.영업이익(손실)`) / as.numeric(`2019/Annual S21100.총수익`),
+    opm2020 = as.numeric(`2020/Annual S25000.영업이익(손실)`) / as.numeric(`2020/Annual S21100.총수익`),
+    opm2021 = as.numeric(`2021/Annual S25000.영업이익(손실)`) / as.numeric(`2021/Annual S21100.총수익`),
+    opm2022 = as.numeric(`2022/Annual S25000.영업이익(손실)`) / as.numeric(`2022/Annual S21100.총수익`),
+    opm2023 = as.numeric(`2023/Annual S25000.영업이익(손실)`) / as.numeric(`2023/Annual S21100.총수익`),
+    opm2024 = as.numeric(`2024/Annual S25000.영업이익(손실)`) / as.numeric(`2024/Annual S21100.총수익`)
+    
   )
 
 # 확인
 merged_data %>%
   summarise(
-    exportamt2019 = sum(exportamt2019, na.rm = TRUE),
-    exportamt2020 = sum(exportamt2020, na.rm = TRUE),
-    exportamt2021 = sum(exportamt2021, na.rm = TRUE),
-    exportamt2022 = sum(exportamt2022, na.rm = TRUE),
-    exportamt2023 = sum(exportamt2023, na.rm = TRUE),
-    exportamt2024 = sum(exportamt2024, na.rm = TRUE)
+    opm2019 = sum(opm2019, na.rm = TRUE),
+    opm2020 = sum(opm2020, na.rm = TRUE),
+    opm2021 = sum(opm2021, na.rm = TRUE),
+    opm2022 = sum(opm2022, na.rm = TRUE),
+    opm2023 = sum(opm2023, na.rm = TRUE),
+    opm2024 = sum(opm2024, na.rm = TRUE)
   )
 
 #===============================================================================
@@ -696,23 +721,48 @@ print(result, width = Inf)
 # ==============================================================================
 
 opm_outlier_biz <- c(
-  # 장비 통제집단
-  "4358600568",   # 엔젤로보틱스                 OPM -6897%  매출 0.3억
-  "1318193141",   # (주)코윈디에스티              OPM  -281%  매출 91.6억
-  "5148800190",   # 주식회사 토모큐브             OPM  -534%  매출 6.2억
-  "4078131509",   # 주식회사 에이치로보틱스       OPM -1225%  매출 0.2억
-  # 부품 통제집단
-  "3148656616",   # 주식회사 뉴라텍               OPM -3302%  매출 1.4억
-  # 부품 처치집단
-  "5158141685",   # (주)테크트랜스                OPM -2587%  매출 0.8억
-  "2068608415",   # 주식회사유우일렉트로닉스       OPM -2589%  매출 0.6억
-  "1298700068",   # (주)니어스랩                  OPM -1656%  매출 0.8억
-  "4188800382",   # (주)에스오에스랩               OPM -1291%  매출 3.6억
-  # 소재 통제집단
-  "8828100643",   # 칸토덴카화인프로덕츠한국(주)   OPM -1706%  매출 2.0억
-  "6498700830",   # 아이씨티케이 주식회사          OPM -1577%  매출 1.4억
-  "2068685921",   # 주식회사 리비콘                OPM  -486%  매출 9.0억
-  "1298178832"    # (주)서남                       OPM  -313%  매출 14.1억
+  # ── 소재 통제집단 (7개) ──
+  "8828100643",   # 칸토덴카화인프로덕츠한국(주)       OPM -1706%  매출   2.0억
+  "6498700830",   # 아이씨티케이 주식회사            OPM -1577%  매출   1.4억
+  "5348600230",   # (주)엑셀세라퓨틱스              OPM -5043%  매출   0.9억
+  "2068685921",   # 주식회사 리비콘                OPM  -486%  매출   9.0억
+  "1298178832",   # (주)서남                     OPM  -313%  매출  14.1억
+  "7818800960",   # 씨에스아이엠(주)               OPM   -99%  매출  12.0억
+  "7128700588",   # 에이엘로봇                   OPM   -66%  매출   2.0억
+  "4108661310",   # (주)씨아이에스케미칼             OPM   -58%  매출  23.9억
+  # ── 소재 처치집단 (6개) ──
+  "5518800506",   # (주)케이비엘러먼트              OPM  -346%  매출   2.2억
+  "1348146818",   # (주)이엠앤아이                OPM  -209%  매출  12.4억
+  "1198682197",   # 머티어리얼 사이언스              OPM  -175%  매출  22.0억
+  "8488800661",   # (주)그래피                   OPM   -83%  매출  13.6억
+  "4098153794",   # 애니젠(주)                   OPM   -68%  매출  62.8억
+  "1408115168",   # (주)엘디스                   OPM    55%  매출 284.6억
+  # ── 부품 통제집단 (2개) ──
+  "3148656616",   # 주식회사 뉴라텍               OPM -3302%  매출   1.4억
+  "3188100609",   # 인투코어테크놀로지주식회사          OPM  -250%  매출   5.0억
+  # ── 부품 처치집단 (12개) ──
+  "2068608415",   # 주식회사유우일렉트로닉스           OPM -2589%  매출   0.6억
+  "5158141685",   # (주)테크트랜스                OPM -2587%  매출   0.8억
+  "1298700068",   # (주)니어스랩                  OPM -1656%  매출   0.8억
+  "4188800382",   # (주)에스오에스랩               OPM -1291%  매출   3.6억
+  "3278700041",   # 주식회사 닷                  OPM  -584%  매출   5.7억
+  "3398601497",   # (주)넥스트칩                  OPM  -363%  매출  36.9억
+  "4328800511",   # 코스모로보틱스주식회사             OPM  -134%  매출   9.3억
+  "2728600666",   # 웨이비스                    OPM   -99%  매출  62.8억
+  "1058806971",   # 하이리움산업(주)               OPM   -83%  매출   5.9억
+  "1298638645",   # (주)라온텍                   OPM   -60%  매출  56.6억
+  "3148175146",   # 알피에스                    OPM   -50%  매출  59.9억
+  "5068136193",   # (주)알파플러스                OPM    54%  매출 518.9억
+  # ── 장비 통제집단 (3개) ──
+  "4358600568",   # 엔젤로보틱스                  OPM -6897%  매출   0.3억
+  "5148800190",   # 주식회사 토모큐브              OPM  -534%  매출   6.2억
+  "1318193141",   # (주)코윈디에스티               OPM  -281%  매출  91.6억
+  "2648148780",   # 큐리오시스                   OPM  -188%  매출  10.1억
+  # ── 장비 처치집단 (6개) ──
+  "4078131509",   # 주식회사 에이치로보틱스           OPM -1225%  매출   0.2억
+  "4168602207",   # 레이저쎌주식회사                OPM  -137%  매출  27.9억
+  "3148608792",   # 에이치앤파워(주)               OPM   -78%  매출  22.3억
+  "4368800186"    # 민테크                     OPM   -73%  매출  13.0억
 )
 
 n_before  <- nrow(merged_data)
