@@ -2,6 +2,11 @@
 # PSM 분석 - 부문별(소재/부품/장비) 분리 매칭 버전
 # 부문별 독립 PSM 비로 Main version of PSM
 #checkin
+
+#20260412
+# 노무비 삭제 : 노동비 = 인건비 + 노무비 합산함
+# 자본금 삭제 : 결과 변수로 적절치 안음.
+# match method "cem" from "nearest"
 # ==============================================================================
 
 packages <- c("readxl", "dplyr", "tidyr", "ggplot2", "gridExtra",
@@ -45,18 +50,18 @@ result = analysis_data %>%
     na_자산 = sum(is.na(`2019/Annual S15000.자산총계`)),
     na_매출 = sum(is.na(`2019/Annual S21100.총수익`)),
     na_부채 = sum(is.na(`2019/Annual S18000.부채총계`)),
-    na_자본금 = sum(is.na(`2019/Annual S18100.자본금`)),
+    #na_자본금 = sum(is.na(`2019/Annual S18100.자본금`)),
     #na_자본총 = sum(is.na(`2019/Annual S18900.자본총계`)), 음수가 발생
     na_종업원 = sum(is.na(`2019/Annual S05000.종업원수`)),
     na_업력 = sum(is.na(`age`)),
     na_KSIC_표준 = sum(is.na(`KSIC_mid_code`)),
     na_지역 = sum(is.na(`region`)),
     #na_노동생산성= sum(is.na(`labor_prod2019`)), #삭제 해야 함. 
-    na_영업이익= sum(is.na(`2019/Annual S25000.영업이익(손실)`)),
+    na_opm= sum(is.na(`opm2019`)),
     na_연구개발비 = sum(is.na(`rdcost2019`)),
     na_수출 = sum(is.na(`exportamt2019`)),
     na_인건비 = sum(is.na('lbcost2019')),
-    na_노무비 = sum(is.na(`mflbcost2019`))
+    #na_노무비 = sum(is.na(`mflbcost2019`))
    )
 
 print(result, width = Inf)
@@ -67,23 +72,23 @@ analysis_data <- analysis_data %>%
     자산       = to_numeric(`2019/Annual S15000.자산총계`),
     매출       = to_numeric(`2019/Annual S21100.총수익`),
     부채       = to_numeric(`2019/Annual S18000.부채총계`),
-    자본금     = to_numeric(`2019/Annual S18100.자본금`),
+    #자본금     = to_numeric(`2019/Annual S18100.자본금`),
     #종업원수   = to_numeric(`2019/Annual S05000.종업원수`),
     업력       = to_numeric(`age`),
     산업       = to_numeric(`KSIC_mid_code`),
     지역       = to_numeric(`region`),
-    영업이익   = to_numeric(`2019/Annual S25000.영업이익(손실)`),
+    opm   = to_numeric(opm2019),
     #노동생산성 = to_numeric(`labor_prod2019`),
     연구개발비 = to_numeric(rdcost2019),
     수출금액   = to_numeric(exportamt2019), 
     인건비     = to_numeric(lbcost2019),
-    노무비     = to_numeric(mflbcost2019),
+    #노무비     = to_numeric(mflbcost2019),
     
     treat      = ifelse(group == "Treatgroup", 1, 0),
     log_자산      = log(자산 + 1),
     log_매출      = log(매출 + 1),
     log_부채      = log(부채 + 1),
-    log_자본금    = log(자본금 + 1),
+    #log_자본금    = log(자본금 + 1),
     #log_종업원수  = log(종업원수 + 1),
     log_업력      = log(업력 + 1),
     log_산업      = log(산업 + 1),
@@ -92,18 +97,18 @@ analysis_data <- analysis_data %>%
     log_연구개발비 = log(연구개발비 + 1), 
     log_수출       = log(수출금액 + 1),       
     log_인건비   = log(인건비 + 1),
-    log_노무비   = log(노무비 + 1)
+    #log_노무비   = log(노무비 + 1)
   ) %>%
-  filter(!is.na(자산) & !is.na(매출) & !is.na(부채) & !is.na(자본금) &
-           !is.na(업력) & !is.na(영업이익))
+  filter(!is.na(자산) & !is.na(매출) & !is.na(부채) &
+           !is.na(업력) & !is.na(opm2019))
 
 cat("전체 샘플:", nrow(analysis_data), "\n")
 cat("seg 분포:\n"); print(table(analysis_data$seg, analysis_data$treat))
 
 # PSM 공식
-psm_formula <- treat ~ log_자산 + log_매출 + log_부채 + log_자본금 +
-    log_업력 + factor(산업) + factor(지역) + log_연구개발비 + log_수출 + 
-  log_인건비 + log_노무비
+psm_formula <- treat ~ log_자산 + log_매출 + log_부채 + 
+  log_업력 + factor(산업) + factor(지역) + log_연구개발비 + log_수출 + 
+  log_인건비 + opm
 
 # ==============================================================================
 # 2. 방법 A: 기존 방식 (통합 PSM + exact = ~seg)
@@ -158,8 +163,8 @@ for (s in names(seg_labels)) {
     ind_lvl <- length(unique(sub_data$산업))
     reg_lvl <- length(unique(sub_data$지역))
     
-    base_vars <- "log_자산 + log_매출 + log_부채 + log_자본금 + log_업력 + log_연구개발비 + log_수출 + 
-    log_인건비 + log_노무비"
+    base_vars <- "log_자산 + log_매출 + log_부채 + log_업력 + log_연구개발비 + log_수출 + 
+    log_인건비 + opm"
 
     ind_part  <- if (ind_lvl > 1) " + factor(산업)" else ""
     reg_part  <- if (reg_lvl > 1) " + factor(지역)" else ""
@@ -199,10 +204,8 @@ cat("  전체 처치:", sum(matched_data_B$treat == 1),
 # ==============================================================================
 
 calc_smd <- function(df) {
-  vars <- c("log_자산", "log_매출", "log_부채", "log_자본금",
-            # "log_종업원수" 삭제
-            "log_업력", "영업이익", #"노동생산성",
-            "log_연구개발비", "log_수출", "log_인건비", "log_노무비")    # ← 추가
+  vars <- c("log_자산", "log_매출", "log_부채", "log_업력", "opm",
+            "log_연구개발비", "log_수출", "log_인건비") 
   sapply(vars, function(v) {
     x1 <- df[[v]][df$treat == 1]; x0 <- df[[v]][df$treat == 0]
     (mean(x1, na.rm = TRUE) - mean(x0, na.rm = TRUE)) /
@@ -416,3 +419,4 @@ cat("\n=== 분석 완료 ===\n")
 cat("방법B 결과를 DID 분석에 쓰려면:\n")
 cat("  #4 DID_Seg_log.R 상단에서 파일명을\n")
 cat("  'matched_dataset_segPSM.xlsx' 로 변경하면 됩니다.\n")
+
