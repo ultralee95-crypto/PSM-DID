@@ -19,10 +19,10 @@
 #동일 통제군 대비 하위그룹별 DID를 추정하고, ANOVA 이질성 검정으로 
 #강도별 효과 차이의 통계적 유의성을 확인하는 접근은 선행연구
 #(예: Czarnitzki & Lopes-Bento, 2013; Hottenrott & Lopes-Bento, 2014)에서도 채택된 표준적 방법이다.
+# 20260503
+# 결과 변수에서 자본금 삭제. OPM 로그변환 하지 않음(opm). 노무비 삭제하고 인건비로 통합(lbcost) 
+# Doubly Robust DID 추가 (자기자신 사전값 제외, 나머지 7개 통제)
 # ==============================================================================
-
-
-
 packages <- c("readxl", "dplyr", "tidyr", "ggplot2",
               "sandwich", "lmtest", "writexl",
               "gridExtra", "grid", "scales", "car")
@@ -95,14 +95,14 @@ panel_list <- lapply(1:nrow(matched), function(i) {
     asset      = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S15000.자산총계"))),
     debt       = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18000.부채총계"))),
     equity     = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18900.자본총계"))),
-    capital    = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18100.자본금"))),
+    #capital    = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S18100.자본금"))),
     sales      = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S21100.총수익"))),
-    op_profit  = sapply(years, function(y) safe_col(row, paste0(y, "/Annual S25000.영업이익(손실)"))),
+    op_profit  = sapply(years, function(y) safe_col(row, paste0("opm", y))),
     patent     = sapply(years, function(y) safe_col(row, paste0("p", y))),
     export     = sapply(years, function(y) safe_col(row, paste0("exportamt", y))),
     rdcost     = sapply(years, function(y) safe_col(row, paste0("rdcost", y))),
     lbcost     = sapply(years, function(y) safe_col(row, paste0("lbcost",   y))),
-    mflbcost   = sapply(years, function(y) safe_col(row, paste0("mflbcost", y))),
+    #mflbcost   = sapply(years, function(y) safe_col(row, paste0("mflbcost", y))),
     # ──────────────────────────────────────────────────────────────────────────
     stringsAsFactors = FALSE
   )
@@ -121,13 +121,13 @@ panel <- panel %>%
     log_asset    = ifelse(!is.na(asset)  & asset  > 0, log(asset),  NA),
     log_sales    = ifelse(!is.na(sales)  & sales  > 0, log(sales),  NA),
     log_debt     = log1p(pmax(debt,    0, na.rm = TRUE)),
-    log_capital  = log1p(pmax(capital, 0, na.rm = TRUE)),
-    log_opprofit = log_signed(op_profit),
+    #log_capital  = log1p(pmax(capital, 0, na.rm = TRUE)),
+    #log_opprofit = log_signed(op_profit),
     log_patent   = log1p(pmax(patent,  0, na.rm = TRUE)),
     log_export   = log1p(pmax(export,  0, na.rm = TRUE)),
     log_rdcost   = log1p(pmax(rdcost,  0, na.rm = TRUE)),
     log_lbcost   = log1p(pmax(lbcost,  0, na.rm = TRUE)),
-    log_mflbcost = log1p(pmax(mflbcost, 0, na.rm = TRUE))
+    #log_mflbcost = log1p(pmax(mflbcost, 0, na.rm = TRUE))
   )
 
 # 부문 라벨
@@ -142,21 +142,24 @@ print(
     pivot_wider(names_from = n_funded, values_from = n, values_fill = 0) %>%
     as.data.frame()
 )
-
+#seg_name   0   1  2   3
+#1     부품 289 106 73 110
+#2     소재 155  51 49  55
+#3     장비  94  39 35  20
 # ==============================================================================
 # 3. 분석 변수 정의
 # ==============================================================================
 
-vars <- data.frame(
-  label = c("ln자산",    "ln매출",    "ln부채",     "ln자본금",
-            "ln영업이익", "ln(특허+1)", "ln(수출+1)", "ln(개발비+1)",
-            "ln(인건비+1)", "ln(노무비+1)"),   # ← 2개 추가
-  var   = c("log_asset", "log_sales", "log_debt",    "log_capital",
-            "log_opprofit", "log_patent", "log_export", "log_rdcost",
-            "log_lbcost", "log_mflbcost"),        # ← 기존 그대로
-  cat   = c("성장성", "성장성", "안정성", "성장성",
+ana_vars <- data.frame(
+  label = c("ln자산",    "ln매출",    "ln부채",
+            "OPM", "ln(특허+1)", "ln(수출+1)", "ln(개발비+1)",
+            "ln(인건비+1)"),
+  var   = c("log_asset", "log_sales", "log_debt", 
+            "op_profit", "log_patent", "log_export", "log_rdcost",
+            "log_lbcost"),       
+  cat   = c("성장성", "성장성", "안정성", 
             "수익성", "혁신성", "활동성", "혁신성",
-            "활동성", "활동성"),                   # ← 2개 추가
+            "활동성"),                 
   stringsAsFactors = FALSE
 )
 
@@ -491,6 +494,164 @@ cat("  • p_3v1/3v2/2v1 = 쌍별 횟수 간 효과 차이 t검정\n")
 print(dummy_result[, c("부문","변수","통제평균diff",
                        "DID_1회","sig_1회","DID_2회","sig_2회",
                        "DID_3회","sig_3회","sig_F이질성")])
+# ==============================================================================
+# 4-C. Doubly Robust DID  [20260412 추가]  — #4-1 스타일 (OLS-augmented)
+#
+#  설계: 각 결과변수 Y_k에 대해 자기자신의 사전값(Y_k_pre)을 제외한
+#        나머지 7개 변수의 _pre 값을 통제변수로 추가한 OLS:
+#
+#          lm( diff ~ treat_dummy + X_{-k,pre} ),  diff = Y_post - Y_pre
+#
+#        treat_dummy 계수 = DR-DID 추정치
+#        통제군은 동일 부문 내 n_funded==0 기업, 처치군은 n_funded==n 기업
+#        부문(seg) × 투자횟수(n) × 결과변수(Y_k) 단위로 반복
+# ==============================================================================
+
+cat("\n", paste(rep("=", 80), collapse = ""), "\n")
+cat("  [4-C] Doubly Robust DID — lm(diff ~ treat + 7개 사전공변량)\n")
+cat(paste(rep("=", 80), collapse = ""), "\n")
+
+dr_all <- list()
+
+for (s in c(1, 2, 3)) {
+  seg_name <- seg_labels[as.character(s)]
+  
+  # ── 통제집단 wide (n_funded == 0) ──
+  ctrl_pre  <- panel %>% filter(seg == s, n_funded == 0, year == 2019)
+  ctrl_post <- panel %>% filter(seg == s, n_funded == 0, year == 2024)
+  
+  ctrl_wide_dr <- ctrl_pre %>%
+    select(firm_id) %>%
+    left_join(
+      ctrl_pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
+        rename_with(~ paste0(.x, "_pre"),  -firm_id), by = "firm_id") %>%
+    left_join(
+      ctrl_post %>% select(firm_id, all_of(ana_vars$var)) %>%
+        rename_with(~ paste0(.x, "_post"), -firm_id), by = "firm_id")
+  
+  for (n in n_funded_levels) {
+    n_label <- n_funded_labels[as.character(n)]
+    
+    # ── 처치집단 wide (n_funded == n) ──
+    tr_pre  <- panel %>% filter(seg == s, n_funded == n, year == 2019)
+    tr_post <- panel %>% filter(seg == s, n_funded == n, year == 2024)
+    
+    n_treat <- nrow(tr_pre)
+    n_ctrl  <- nrow(ctrl_pre)
+    
+    if (n_treat < 5) {
+      cat(sprintf("\n  [%s - %s] 처치 표본 부족 (N=%d), 건너뜀\n",
+                  seg_name, n_label, n_treat))
+      next
+    }
+    
+    tr_wide_dr <- tr_pre %>%
+      select(firm_id) %>%
+      left_join(
+        tr_pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
+          rename_with(~ paste0(.x, "_pre"),  -firm_id), by = "firm_id") %>%
+      left_join(
+        tr_post %>% select(firm_id, all_of(ana_vars$var)) %>%
+          rename_with(~ paste0(.x, "_post"), -firm_id), by = "firm_id")
+    
+    sub_wide <- bind_rows(
+      tr_wide_dr   %>% mutate(treat_dummy = 1L),
+      ctrl_wide_dr %>% mutate(treat_dummy = 0L)
+    )
+    
+    cat(sprintf(
+      "\n─── %s | %s (처치 N=%d, 통제 N=%d) ───\n",
+      seg_name, n_label, n_treat, n_ctrl))
+    cat(sprintf("  %-16s %12s %12s %10s %8s %10s %5s\n",
+                "변수", "DID_simple", "DID_DR", "SE_DR", "t_DR", "p_DR", "유의"))
+    cat("  ", paste(rep("-", 82), collapse = ""), "\n")
+    
+    seg_dr_rows <- list()
+    
+    for (v in 1:nrow(ana_vars)) {
+      var_k    <- ana_vars$var[v]
+      col_pre  <- paste0(var_k, "_pre")
+      col_post <- paste0(var_k, "_post")
+      
+      sub_wide$diff <- sub_wide[[col_post]] - sub_wide[[col_pre]]
+      
+      # (A) Simple DID — 비교용
+      reg_s   <- tryCatch(lm(diff ~ treat_dummy, data = sub_wide),
+                          error = function(e) NULL)
+      did_s   <- if (!is.null(reg_s)) coef(reg_s)["treat_dummy"] else NA_real_
+      p_s     <- if (!is.null(reg_s))
+        summary(reg_s)$coefficients["treat_dummy", "Pr(>|t|)"] else NA_real_
+      
+      # (B) Doubly Robust — 자기자신 _pre 제외, 나머지 7개 _pre를 통제변수로
+      cov_pre <- setdiff(paste0(ana_vars$var, "_pre"), col_pre)
+      fmla    <- as.formula(paste("diff ~ treat_dummy +",
+                                  paste(cov_pre, collapse = " + ")))
+      reg_dr  <- tryCatch(lm(fmla, data = sub_wide),
+                          error = function(e) NULL)
+      
+      if (is.null(reg_dr) || !("treat_dummy" %in% rownames(summary(reg_dr)$coefficients))) {
+        cat(sprintf("  %-16s  [DR 회귀 실패]\n", ana_vars$label[v]))
+        next
+      }
+      
+      dr_coefs <- summary(reg_dr)$coefficients
+      did_dr   <- dr_coefs["treat_dummy", "Estimate"]
+      se_dr    <- dr_coefs["treat_dummy", "Std. Error"]
+      t_dr     <- dr_coefs["treat_dummy", "t value"]
+      p_dr     <- dr_coefs["treat_dummy", "Pr(>|t|)"]
+      
+      cat(sprintf("  %-16s %12.4f %12.4f %10.4f %8.3f %10.4f %5s\n",
+                  ana_vars$label[v],
+                  safe_num(did_s),  safe_num(did_dr),
+                  safe_num(se_dr),  safe_num(t_dr),
+                  safe_num(p_dr),   safe_str(sig_mark(p_dr))))
+      
+      # 통제변수 효과 출력 (#4-1 스타일)
+      cat(sprintf("    [DR 통제변수] "))
+      for (cv in cov_pre) {
+        if (cv %in% rownames(dr_coefs)) {
+          cv_b <- dr_coefs[cv, "Estimate"]
+          cv_p <- dr_coefs[cv, "Pr(>|t|)"]
+          cat(sprintf("%s=%.3f(%s) ", cv, cv_b, sig_mark(cv_p)))
+        }
+      }
+      cat("\n")
+      
+      seg_dr_rows[[v]] <- data.frame(
+        부문        = seg_name,
+        투자횟수    = n_label,
+        n_funded    = n,
+        카테고리    = ana_vars$cat[v],
+        변수        = ana_vars$label[v],
+        N_처치      = n_treat,
+        N_통제      = n_ctrl,
+        DID_simple  = safe_num(did_s),
+        p_simple    = safe_num(p_s),
+        sig_simple  = safe_str(sig_mark(p_s)),
+        DID_DR      = safe_num(did_dr),
+        SE_DR       = safe_num(se_dr),
+        t_DR        = safe_num(t_dr),
+        p_DR        = safe_num(p_dr),
+        sig_DR      = safe_str(sig_mark(p_dr)),
+        stringsAsFactors = FALSE
+      )
+    }
+    
+    key <- paste0(seg_name, "_", n_label)
+    dr_all[[key]] <- bind_rows(seg_dr_rows)
+  }
+}
+
+dr_result <- bind_rows(dr_all) %>% as.data.frame()
+
+cat("\n=== [4-C] DR-DID 결과 요약 ===\n")
+cat("  해석 방법:\n")
+cat("  • DID_simple = lm(diff ~ treat_dummy)             — 단순 DID 비교용\n")
+cat("  • DID_DR     = lm(diff ~ treat_dummy + X_-k,pre) — 7개 사전공변량 통제\n")
+cat("                  → treat_dummy 계수 = DR-DID 추정량\n")
+print(dr_result[, c("부문","투자횟수","변수",
+                    "DID_simple","sig_simple",
+                    "DID_DR","SE_DR","p_DR","sig_DR")])
 
 # ==============================================================================
 # 5. Wide 비교표 — 투자횟수 × 변수  (부문별 파일로 분리)
@@ -823,8 +984,9 @@ cat("✓ ParallelTrends_Nfunded_Heatmap.png 저장\n")
 # Wide 시트 3개 (부문별)
 excel_sheets <- list(
   DID_결과_전체    = did_result,
-  더미모형_0회기준    = dummy_result,   # [4-B] 추가
-    평행추세_결과    = pt_result,
+  더미모형_0회기준 = dummy_result,   # [4-B] 추가
+  "DID_Doubly_Robust" = dr_result,      # [4-C] 추가
+  평행추세_결과    = pt_result,
   Wide_소재        = wide_list[["소재"]],
   Wide_부품        = wide_list[["부품"]],
   Wide_장비        = wide_list[["장비"]]
