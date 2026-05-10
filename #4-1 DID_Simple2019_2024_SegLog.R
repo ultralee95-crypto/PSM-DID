@@ -1,10 +1,11 @@
 # ==============================================================================
 # 소재(seg=1) / 부품(seg=2) / 장비(seg=3)별 DID 분석
-# ① Simple DID (2019 vs 2024)  ② 변수별 평행추세 검정 + 시각화
+# ① Simple DID (2019 vs 2024, 2025)  ② 변수별 평행추세 검정 + 시각화
 # 수출금액, 개발비, 특허 포함 | 20260310 수정
 # checkin
 #20260412 : 결과 변수에서 자본금 삭제. OPM 로그변환 하지 않음. 노무비 삭제
 #20260412 : Doubly Robust DID 추가 (자기자신 사전값 제외, 나머지 7개 통제)
+# 2025년도 자료 추가. 2024 vs 2025
 # ==============================================================================
 
 packages <- c("readxl", "dplyr", "tidyr", "ggplot2", "broom", "sandwich",
@@ -65,7 +66,9 @@ safe_col <- function(row, col_name) {
 }
 
 
-years <- 2018:2024
+# 2025년도 자료 추가
+
+years <- 2018:2025
 
 panel_list <- lapply(1:nrow(matched), function(i) {
   row <- matched[i, ]
@@ -152,133 +155,180 @@ robust_all <- list()
 
 for (s in c(1, 2, 3)) {
   seg_name <- seg_labels[as.character(s)]
-  sub_pre  <- panel %>% filter(seg == s, year == 2019)
-  sub_post <- panel %>% filter(seg == s, year == 2024)
+  #sub_pre  <- panel %>% filter(seg == s, year == 2019)
+  #sub_post <- panel %>% filter(seg == s, year == 2024)
   
-  # pre/post wide 결합
-  sub_wide <- sub_pre %>%
-    select(firm_id, treat) %>%
-    left_join(
-      sub_pre  %>% select(firm_id, all_of(simple_vars$var)) %>%
-        rename_with(~ paste0(.x, "_pre"),  -firm_id),
-      by = "firm_id") %>%
-    left_join(
-      sub_post %>% select(firm_id, all_of(simple_vars$var)) %>%
-        rename_with(~ paste0(.x, "_post"), -firm_id),
-      by = "firm_id")
-  
-  cat("\n───", seg_name, "───\n")
-  cat(sprintf("  %-16s %10s %10s %10s %10s %10s %8s %5s\n",
-              "변수", "처치_pre", "처치_post", "통제_pre", "통제_post",
-              "DID", "t값", "유의"))
-  cat("  ", paste(rep("-", 85), collapse = ""), "\n")
-  
-  seg_rows <- list()
-  seg_rows_robust <- list()
-  
-  for (v in 1:nrow(simple_vars)) {
-    col_pre  <- paste0(simple_vars$var[v], "_pre")
-    col_post <- paste0(simple_vars$var[v], "_post")
-    sub_wide$diff <- sub_wide[[col_post]] - sub_wide[[col_pre]]
+  for(post_year in c(2024,2025)) {
     
-    t_pre  <- mean(sub_wide[[col_pre]] [sub_wide$treat == 1], na.rm = TRUE)
-    t_post <- mean(sub_wide[[col_post]][sub_wide$treat == 1], na.rm = TRUE)
-    c_pre  <- mean(sub_wide[[col_pre]] [sub_wide$treat == 0], na.rm = TRUE)
-    c_post <- mean(sub_wide[[col_post]][sub_wide$treat == 0], na.rm = TRUE)
+    sub_pre  <- panel %>% filter(seg == s, year == 2019)
+    sub_post <- panel %>% filter(seg == s, year == post_year)
     
+    # pre/post wide 결합
+    sub_wide <- sub_pre %>%
+      select(firm_id, treat) %>%
+      left_join(
+        sub_pre  %>% select(firm_id, all_of(simple_vars$var)) %>%
+          rename_with(~ paste0(.x, "_pre"),  -firm_id),
+        by = "firm_id") %>%
+      left_join(
+        sub_post %>% select(firm_id, all_of(simple_vars$var)) %>%
+          rename_with(~ paste0(.x, "_post"), -firm_id),
+        by = "firm_id")
     
-    # (A) Simple DID — 기존과 동일
-    reg    <- lm(diff ~ treat, data = sub_wide)
-    did_est<- coef(reg)["treat"]
-    t_val  <- summary(reg)$coefficients["treat", "t value"]
-    p_val  <- summary(reg)$coefficients["treat", "Pr(>|t|)"]
+    cat("\n───", seg_name, "───\n")
+    cat(sprintf("  %-16s %10s %10s %10s %10s %10s %8s %5s\n",
+                "변수", "처치_pre", "처치_post", "통제_pre", "통제_post",
+                "DID", "t값", "유의"))
+    cat("  ", paste(rep("-", 85), collapse = ""), "\n")
     
-    # (B) Doubly Robust - 종속변수 자기 자신을 제외한 나머지를 통제변수 추가
-    cov_pre <- setdiff(paste0(simple_vars$var, "_pre"), col_pre)
-    fmla    <- as.formula(paste("diff ~ treat +", paste(cov_pre, collapse = " + ")))
-    reg_dr  <- lm(fmla, data = sub_wide)
-    did_dr  <- coef(reg_dr)["treat"]
-    t_dr    <- summary(reg_dr)$coefficients["treat", "t value"]
-    p_dr    <- summary(reg_dr)$coefficients["treat", "Pr(>|t|)"]
+    seg_rows <- list()
+    seg_rows_robust <- list()
     
-    cat(sprintf("    [DR 통제변수] "))
-    dr_coefs <- summary(reg_dr)$coefficients
-    for (cv in cov_pre) {
-      if (cv %in% rownames(dr_coefs)) {
-        cv_b <- dr_coefs[cv, "Estimate"]
-        cv_p <- dr_coefs[cv, "Pr(>|t|)"]
-        cat(sprintf("%s=%.3f(%s) ", cv, cv_b, sig_mark(cv_p)))
+    for (v in 1:nrow(simple_vars)) {
+      col_pre  <- paste0(simple_vars$var[v], "_pre")
+      col_post <- paste0(simple_vars$var[v], "_post")
+      sub_wide$diff <- sub_wide[[col_post]] - sub_wide[[col_pre]]
+      
+      t_pre  <- mean(sub_wide[[col_pre]] [sub_wide$treat == 1], na.rm = TRUE)
+      t_post <- mean(sub_wide[[col_post]][sub_wide$treat == 1], na.rm = TRUE)
+      c_pre  <- mean(sub_wide[[col_pre]] [sub_wide$treat == 0], na.rm = TRUE)
+      c_post <- mean(sub_wide[[col_post]][sub_wide$treat == 0], na.rm = TRUE)
+      
+      
+      # (A) Simple DID — 기존과 동일
+      reg    <- lm(diff ~ treat, data = sub_wide)
+      did_est<- coef(reg)["treat"]
+      t_val  <- summary(reg)$coefficients["treat", "t value"]
+      p_val  <- summary(reg)$coefficients["treat", "Pr(>|t|)"]
+      
+      # (B) Doubly Robust - 종속변수 자기 자신을 제외한 나머지를 통제변수 추가
+      cov_pre <- setdiff(paste0(simple_vars$var, "_pre"), col_pre)
+      fmla    <- as.formula(paste("diff ~ treat +", paste(cov_pre, collapse = " + ")))
+      reg_dr  <- lm(fmla, data = sub_wide)
+      did_dr  <- coef(reg_dr)["treat"]
+      t_dr    <- summary(reg_dr)$coefficients["treat", "t value"]
+      p_dr    <- summary(reg_dr)$coefficients["treat", "Pr(>|t|)"]
+      
+      cat(sprintf("    [DR 통제변수] "))
+      dr_coefs <- summary(reg_dr)$coefficients
+      for (cv in cov_pre) {
+        if (cv %in% rownames(dr_coefs)) {
+          cv_b <- dr_coefs[cv, "Estimate"]
+          cv_p <- dr_coefs[cv, "Pr(>|t|)"]
+          cat(sprintf("%s=%.3f(%s) ", cv, cv_b, sig_mark(cv_p)))
+        }
       }
+      cat("\n")
+      
+      #cat(sprintf("  %-16s %10.4f %10.4f %10.4f %10.4f %10.4f %8.3f %5s\n",
+      #            simple_vars$label[v],
+      #            safe_num(t_pre), safe_num(t_post), safe_num(c_pre), safe_num(c_post),
+      #            safe_num(did_est), safe_num(t_val), safe_str(sig_mark(p_val))))
+      
+      seg_rows[[v]] <- data.frame(
+        부문 = seg_name, post_year = post_year, 카테고리 = simple_vars$cat[v],
+        변수 = simple_vars$label[v],
+        처치_pre = t_pre, 처치_post = t_post,
+        통제_pre = c_pre, 통제_post = c_post,
+        DID = did_est, t_value = t_val, p_value = p_val,
+        유의성 = sig_mark(p_val),
+        stringsAsFactors = FALSE
+      )
+      
+      # 루프 안에서 각 변수마다 추가:
+      seg_rows_robust[[v]] <- data.frame(
+        부문 = seg_name, post_year = post_year, 카테고리 = simple_vars$cat[v],
+        변수 = simple_vars$label[v],
+        DID_simple = did_est, p_simple = p_val, sig_simple = sig_mark(p_val),
+        DID_DR = did_dr, t_DR = t_dr, p_DR = p_dr, sig_DR = sig_mark(p_dr),
+        stringsAsFactors = FALSE
+      )
+  
     }
-    cat("\n")
     
-    #cat(sprintf("  %-16s %10.4f %10.4f %10.4f %10.4f %10.4f %8.3f %5s\n",
-    #            simple_vars$label[v],
-    #            safe_num(t_pre), safe_num(t_post), safe_num(c_pre), safe_num(c_post),
-    #            safe_num(did_est), safe_num(t_val), safe_str(sig_mark(p_val))))
-    
-    seg_rows[[v]] <- data.frame(
-      부문 = seg_name, 카테고리 = simple_vars$cat[v],
-      변수 = simple_vars$label[v],
-      처치_pre = t_pre, 처치_post = t_post,
-      통제_pre = c_pre, 통제_post = c_post,
-      DID = did_est, t_value = t_val, p_value = p_val,
-      유의성 = sig_mark(p_val),
-      stringsAsFactors = FALSE
-    )
-    
-    # 루프 안에서 각 변수마다 추가:
-    seg_rows_robust[[v]] <- data.frame(
-      부문 = seg_name, 카테고리 = simple_vars$cat[v],
-      변수 = simple_vars$label[v],
-      DID_simple = did_est, p_simple = p_val, sig_simple = sig_mark(p_val),
-      DID_DR = did_dr, t_DR = t_dr, p_DR = p_dr, sig_DR = sig_mark(p_dr),
-      stringsAsFactors = FALSE
-    )
-
+    #simple_all[[seg_name]] <- bind_rows(seg_rows)
+    #robust_all[[seg_name]] <- bind_rows(seg_rows_robust)
+    simple_all[[paste0(seg_name, "_", post_year)]] <- bind_rows(seg_rows)
+    robust_all[[paste0(seg_name, "_", post_year)]] <- bind_rows(seg_rows_robust)
   }
-  
-  simple_all[[seg_name]] <- bind_rows(seg_rows)
-  robust_all[[seg_name]] <- bind_rows(seg_rows_robust)
-  
 }
 
 simple_result <- bind_rows(simple_all) %>% as.data.frame()
 robust_result <- bind_rows(robust_all) %>% as.data.frame()
 
-# Wide format 출력
-simple_wide <- simple_result %>%
-  select(변수, 부문, DID, p_value, 유의성) %>%
-  pivot_wider(
-    names_from  = 부문,
-    values_from = c(DID, p_value, 유의성),
-    names_glue  = "{부문}_{.value}"
-  ) %>%
-  select(변수,
-         소재_DID, 소재_p_value, 소재_유의성,
-         부품_DID, 부품_p_value, 부품_유의성,
-         장비_DID, 장비_p_value, 장비_유의성) %>%
-  as.data.frame()
+# Wide format 출력 2024, 2025 구분 출력
+# post_year별로 나눠서 각각 wide 변환
 
-cat("\n=== Simple DID Wide ===\n")
-print(as.data.frame(simple_wide))
+make_simple_wide <- function(df, yr) {
+  df %>%
+    filter(post_year == yr) %>%
+    select(변수, 부문, DID, p_value, 유의성) %>%
+    pivot_wider(
+      names_from  = 부문,
+      values_from = c(DID, p_value, 유의성),
+      names_glue  = "{부문}_{.value}"
+    ) %>%
+    select(변수,
+           소재_DID, 소재_p_value, 소재_유의성,
+           부품_DID, 부품_p_value, 부품_유의성,
+           장비_DID, 장비_p_value, 장비_유의성) %>%
+    as.data.frame()
+}
+
+make_robust_wide <- function(df, yr) {
+  df %>%
+    filter(post_year == yr) %>%
+    select(변수, 부문, DID_DR, p_DR, sig_DR) %>%
+    pivot_wider(
+      names_from  = 부문,
+      values_from = c(DID_DR, p_DR, sig_DR),
+      names_glue  = "{부문}_{.value}"
+    ) %>%
+    select(변수,
+           소재_DID_DR, 소재_p_DR, 소재_sig_DR,
+           부품_DID_DR, 부품_p_DR, 부품_sig_DR,
+           장비_DID_DR, 장비_p_DR, 장비_sig_DR) %>%
+    as.data.frame()
+}
+
+simple_wide_2024 <- make_simple_wide(simple_result, 2024)
+simple_wide_2025 <- make_simple_wide(simple_result, 2025)
+robust_wide_2024 <- make_robust_wide(robust_result, 2024)
+robust_wide_2025 <- make_robust_wide(robust_result, 2025)
+
+#simple_wide <- simple_result %>%
+#  select(변수, 부문, DID, p_value, 유의성) %>%
+#  pivot_wider(
+#    names_from  = 부문,
+#    values_from = c(DID, p_value, 유의성),
+#    names_glue  = "{부문}_{.value}"
+#  ) %>%
+#  select(변수,
+#         소재_DID, 소재_p_value, 소재_유의성,
+#         부품_DID, 부품_p_value, 부품_유의성,
+#         장비_DID, 장비_p_value, 장비_유의성) %>%
+#  as.data.frame()
+
+# cat("\n=== Simple DID Wide ===\n")
+# print(as.data.frame(simple_wide))
 
 # --- Wide format: Doubly Robust DID ---
-robust_wide <- robust_result %>%
-  select(변수, 부문, DID_DR, p_DR, sig_DR) %>%
-  pivot_wider(
-    names_from  = 부문,
-    values_from = c(DID_DR, p_DR, sig_DR),
-    names_glue  = "{부문}_{.value}"
-  ) %>%
-  select(변수,
-         소재_DID_DR, 소재_p_DR, 소재_sig_DR,
-         부품_DID_DR, 부품_p_DR, 부품_sig_DR,
-         장비_DID_DR, 장비_p_DR, 장비_sig_DR) %>%
-  as.data.frame()
+# robust_wide <- robust_result %>%
+#   select(변수, 부문, DID_DR, p_DR, sig_DR) %>%
+#   pivot_wider(
+#     names_from  = 부문,
+#     values_from = c(DID_DR, p_DR, sig_DR),
+#     names_glue  = "{부문}_{.value}"
+#   ) %>%
+#   select(변수,
+#          소재_DID_DR, 소재_p_DR, 소재_sig_DR,
+#          부품_DID_DR, 부품_p_DR, 부품_sig_DR,
+#          장비_DID_DR, 장비_p_DR, 장비_sig_DR) %>%
+#   as.data.frame()
+# 
+# cat("\n=== Doubly Robust DID Wide ===\n")
+# print(robust_wide)
 
-cat("\n=== Doubly Robust DID Wide ===\n")
-print(robust_wide)
 # ==============================================================================
 # 4. 변수별 평행추세 검정 (pre-trend t-test: 2018→2019 기울기 차이)
 # 2018->2019로 해야 함.
@@ -360,34 +410,37 @@ col_ctrl  <- "#4A90D9"
 # 6. Simple DID 시각화 — 부문별 DID 계수 dot plot (변수 × 부문)
 # ==============================================================================
 
-plot_simple <- simple_result %>%
-  mutate(
-    변수 = factor(변수, levels = rev(simple_vars$label)),
-    부문 = factor(부문, levels = c("소재", "부품", "장비")),
-    유의 = ifelse(p_value < 0.05, "유의(p<0.05)", "비유의")
-  )
-
-p_did <- ggplot(plot_simple, aes(x = DID, y = 변수, color = 부문, shape = 유의)) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
-  geom_point(size = 3.5, position = position_dodge(width = 0.6)) +
-  scale_color_manual(values = c("소재" = "#8E44AD", "부품" = "#2980B9", "장비" = "#27AE60")) +
-  scale_shape_manual(values = c("유의(p<0.05)" = 16, "비유의" = 1)) +
-  facet_wrap(~ 카테고리, scales = "free_x", ncol = 2) +
-  labs(
-    title    = "Simple DID 추정량 (Pre=2019, Post=2024)",
-    subtitle = "변수별 · 부문별 비교 | ln 변환 기준",
-    x = "DID 계수", y = NULL, color = "부문", shape = "유의성"
-  ) +
-  theme_minimal(base_family = kfont) +
-  theme(
-    plot.title   = element_text(face = "bold", size = 14),
-    legend.position = "top",
-    strip.text   = element_text(face = "bold", size = 11),
-    axis.text.y  = element_text(size = 9)
-  )
-
-ggsave("SimpleDID_dotplot.png", p_did, width = 13, height = 9, dpi = 300)
-cat("\n✓ SimpleDID_dotplot.png 저장\n")
+for (yr in c(2024, 2025)) {
+  plot_simple <- simple_result %>%
+    filter(post_year == yr) %>%
+    mutate(
+      변수 = factor(변수, levels = rev(simple_vars$label)),
+      부문 = factor(부문, levels = c("소재", "부품", "장비")),
+      유의 = ifelse(p_value < 0.05, "유의(p<0.05)", "비유의")
+    )
+  
+  p_did <- ggplot(plot_simple, aes(x = DID, y = 변수, color = 부문, shape = 유의)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+    geom_point(size = 3.5, position = position_dodge(width = 0.6)) +
+    scale_color_manual(values = c("소재" = "#8E44AD", "부품" = "#2980B9", "장비" = "#27AE60")) +
+    scale_shape_manual(values = c("유의(p<0.05)" = 16, "비유의" = 1)) +
+    facet_wrap(~ 카테고리, scales = "free_x", ncol = 2) +
+    labs(
+      title    = sprintf("Simple DID 추정량 (Pre=2019, Post=%d)", yr),
+      subtitle = "변수별 · 부문별 비교 | ln 변환 기준",
+      x = "DID 계수", y = NULL, color = "부문", shape = "유의성"
+    ) +
+    theme_minimal(base_family = kfont) +
+    theme(
+      plot.title   = element_text(face = "bold", size = 14),
+      legend.position = "top",
+      strip.text   = element_text(face = "bold", size = 11),
+      axis.text.y  = element_text(size = 9)
+    )
+  
+  ggsave(sprintf("SimpleDID_dotplot_%d.png",yr), p_did, width = 13, height = 9, dpi = 300)
+  cat(sprintf("\n✓ SimpleDID_dotplot_%d.png 저장\n", yr))
+}
 
 # ==============================================================================
 # 7. 변수별 평행추세 시각화 — 부문 × 변수 전체 그리드 (3 × 8)
@@ -455,7 +508,8 @@ for (s in c(1, 2, 3)) {
                size = 2.8, color = "gray30") +
       scale_color_manual(values = c("처치" = col_treat, "통제" = col_ctrl)) +
       scale_fill_manual( values = c("처치" = col_treat, "통제" = col_ctrl)) +
-      scale_x_continuous(breaks = 2019:2024) +
+      # 2018-2025
+      scale_x_continuous(breaks = 2018:2025) +
       labs(
         title = label,
         x = NULL, y = NULL, color = NULL, fill = NULL
@@ -530,10 +584,18 @@ cat("✓ ParallelTrends_Heatmap.png 저장\n")
 
 write_xlsx(
   list(
-    Simple_DID        = simple_result,
-    Simple_DID_Wide   = simple_wide,
-    DoublyRobust_DID  = robust_result,
-    DoublyRobust_Wide = robust_wide,
+    # Simple_DID        = simple_result,
+    # Simple_DID_Wide   = simple_wide,
+    # DoublyRobust_DID  = robust_result,
+    # DoublyRobust_Wide = robust_wide,
+    Simple_DID_2024        = simple_result %>% filter(post_year == 2024),
+    Simple_DID_2025        = simple_result %>% filter(post_year == 2025),
+    Simple_Wide_2024       = simple_wide_2024,
+    Simple_Wide_2025       = simple_wide_2025,
+    DoublyRobust_DID_2024  = robust_result %>% filter(post_year == 2024),
+    DoublyRobust_DID_2025  = robust_result %>% filter(post_year == 2025),
+    DoublyRobust_Wide_2024 = robust_wide_2024,
+    DoublyRobust_Wide_2025 = robust_wide_2025,
     ParallelTrends    = pt_result
   ),
   "DID_SimpleDID_PT.xlsx"

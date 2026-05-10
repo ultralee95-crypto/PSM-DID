@@ -5,6 +5,7 @@
 #: change to 연구비합계 from 민간연구비_소계
 # change to 노동비용 (lbcost) = 인건비 + 노무비
 # add OPM (Operation Margin), OPM 결측치 제거 추가.
+# 2025년도 자료 추가 
 # ============================================================
 
 install.packages("readxl")      # 엑셀 읽기
@@ -402,6 +403,7 @@ merged_data %>%
 # 수출 여부를 0, 1로 표기 
 # 수출, 개발비용 N/A 이면 0으로 처리.
 # 인건비, 노무비 N/A -> 0
+# 2025년도 추가
 
 
 # 전체 출력
@@ -420,6 +422,7 @@ merged_data <- merged_data %>%
     export2022 = ifelse(!is.na(`2022/Annual S21195.[수출]`) & `2022/Annual S21195.[수출]` > 0, 1, 0),
     export2023 = ifelse(!is.na(`2023/Annual S21195.[수출]`) & `2023/Annual S21195.[수출]` > 0, 1, 0),
     export2024 = ifelse(!is.na(`2024/Annual S21195.[수출]`) & `2024/Annual S21195.[수출]` > 0, 1, 0),
+    export2025 = ifelse(!is.na(`2025/Annual S21195.[수출]`) & `2025/Annual S21195.[수출]` > 0, 1, 0),
     
     # ── 수출금액 (NA → 0 처리) ──
     exportamt2018 = ifelse(is.na(as.numeric(`2018/Annual S21195.[수출]`)), 0, as.numeric(`2018/Annual S21195.[수출]`)),
@@ -429,6 +432,7 @@ merged_data <- merged_data %>%
     exportamt2022 = ifelse(is.na(as.numeric(`2022/Annual S21195.[수출]`)), 0, as.numeric(`2022/Annual S21195.[수출]`)),
     exportamt2023 = ifelse(is.na(as.numeric(`2023/Annual S21195.[수출]`)), 0, as.numeric(`2023/Annual S21195.[수출]`)),
     exportamt2024 = ifelse(is.na(as.numeric(`2024/Annual S21195.[수출]`)), 0, as.numeric(`2024/Annual S21195.[수출]`)),
+    exportamt2025 = ifelse(is.na(as.numeric(`2025/Annual S21195.[수출]`)), 0, as.numeric(`2025/Annual S21195.[수출]`)),
     
     # ── 연구개발비용계 (NA → 0 처리) ──
     rdcost2018 = ifelse(is.na(as.numeric(`2018/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2018/Annual 692084.연구개발비용-연구개발비용계`)),
@@ -438,6 +442,7 @@ merged_data <- merged_data %>%
     rdcost2022 = ifelse(is.na(as.numeric(`2022/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2022/Annual 692084.연구개발비용-연구개발비용계`)),
     rdcost2023 = ifelse(is.na(as.numeric(`2023/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2023/Annual 692084.연구개발비용-연구개발비용계`)),
     rdcost2024 = ifelse(is.na(as.numeric(`2024/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2024/Annual 692084.연구개발비용-연구개발비용계`)),
+    rdcost2025 = ifelse(is.na(as.numeric(`2025/Annual 692084.연구개발비용-연구개발비용계`)), 0, as.numeric(`2025/Annual 692084.연구개발비용-연구개발비용계`)),
     
     # ── 인건비 (NA → 0 처리) ──
     pay2018 = ifelse(is.na(as.numeric(`2018/Annual 124100.인건비`)), 0, as.numeric(`2018/Annual 124100.인건비`)),
@@ -447,6 +452,7 @@ merged_data <- merged_data %>%
     pay2022 = ifelse(is.na(as.numeric(`2022/Annual 124100.인건비`)), 0, as.numeric(`2022/Annual 124100.인건비`)),
     pay2023 = ifelse(is.na(as.numeric(`2023/Annual 124100.인건비`)), 0, as.numeric(`2023/Annual 124100.인건비`)),
     pay2024 = ifelse(is.na(as.numeric(`2024/Annual 124100.인건비`)), 0, as.numeric(`2024/Annual 124100.인건비`)),
+    pay2025 = ifelse(is.na(as.numeric(`2025/Annual 124100.인건비`)), 0, as.numeric(`2025/Annual 124100.인건비`)),
     
     # ── 노무비 (NA → 0 처리) ──
     mflbcost2018 = ifelse(is.na(as.numeric(`2018/Annual 152000.노무비`)), 0, as.numeric(`2018/Annual 152000.노무비`)),
@@ -456,6 +462,7 @@ merged_data <- merged_data %>%
     mflbcost2022 = ifelse(is.na(as.numeric(`2022/Annual 152000.노무비`)), 0, as.numeric(`2022/Annual 152000.노무비`)),
     mflbcost2023 = ifelse(is.na(as.numeric(`2023/Annual 152000.노무비`)), 0, as.numeric(`2023/Annual 152000.노무비`)),
     mflbcost2024 = ifelse(is.na(as.numeric(`2024/Annual 152000.노무비`)), 0, as.numeric(`2024/Annual 152000.노무비`)),
+    mflbcost2025 = ifelse(is.na(as.numeric(`2025/Annual 152000.노무비`)), 0, as.numeric(`2025/Annual 152000.노무비`)),
     
     # ── 노동비용 (NA → 0 처리) ──
     lbcost2018 = pay2018 + mflbcost2018,
@@ -465,6 +472,7 @@ merged_data <- merged_data %>%
     lbcost2022 = pay2022 + mflbcost2022,
     lbcost2023 = pay2023 + mflbcost2023,
     lbcost2024 = pay2024 + mflbcost2024,
+    lbcost2025 = pay2025 + mflbcost2025,
     
     # ── 영업 이익률 OPM : Operation Margin %
     opm2018 = as.numeric(`2018/Annual S25000.영업이익(손실)`) / as.numeric(`2018/Annual S21100.총수익`),
@@ -473,7 +481,8 @@ merged_data <- merged_data %>%
     opm2021 = as.numeric(`2021/Annual S25000.영업이익(손실)`) / as.numeric(`2021/Annual S21100.총수익`),
     opm2022 = as.numeric(`2022/Annual S25000.영업이익(손실)`) / as.numeric(`2022/Annual S21100.총수익`),
     opm2023 = as.numeric(`2023/Annual S25000.영업이익(손실)`) / as.numeric(`2023/Annual S21100.총수익`),
-    opm2024 = as.numeric(`2024/Annual S25000.영업이익(손실)`) / as.numeric(`2024/Annual S21100.총수익`)
+    opm2024 = as.numeric(`2024/Annual S25000.영업이익(손실)`) / as.numeric(`2024/Annual S21100.총수익`),
+    opm2025 = as.numeric(`2025/Annual S25000.영업이익(손실)`) / as.numeric(`2025/Annual S21100.총수익`)
     
   )
 
@@ -485,7 +494,8 @@ merged_data %>%
     opm2021 = sum(opm2021, na.rm = TRUE),
     opm2022 = sum(opm2022, na.rm = TRUE),
     opm2023 = sum(opm2023, na.rm = TRUE),
-    opm2024 = sum(opm2024, na.rm = TRUE)
+    opm2024 = sum(opm2024, na.rm = TRUE),
+    opm2025 = sum(opm2025, na.rm = TRUE)
   )
 
 #===============================================================================
@@ -500,7 +510,8 @@ merged_data <- merged_data %>%
     labor_prod2021 = as.numeric(`2021/Annual S21100.총수익`) / as.numeric(`2021/Annual S05000.종업원수`),
     labor_prod2022 = as.numeric(`2022/Annual S21100.총수익`) / as.numeric(`2022/Annual S05000.종업원수`),
     labor_prod2023 = as.numeric(`2023/Annual S21100.총수익`) / as.numeric(`2023/Annual S05000.종업원수`),
-    labor_prod2024 = as.numeric(`2024/Annual S21100.총수익`) / as.numeric(`2024/Annual S05000.종업원수`)
+    labor_prod2024 = as.numeric(`2024/Annual S21100.총수익`) / as.numeric(`2024/Annual S05000.종업원수`),
+    labor_prod2025 = as.numeric(`2025/Annual S21100.총수익`) / as.numeric(`2025/Annual S05000.종업원수`)
   )
 
 # 확인
@@ -511,7 +522,8 @@ merged_data %>%
     avg_labor_prod2021 = mean(labor_prod2021, na.rm = TRUE),
     avg_labor_prod2022 = mean(labor_prod2022, na.rm = TRUE),
     avg_labor_prod2023 = mean(labor_prod2023, na.rm = TRUE),
-    avg_labor_prod2024 = mean(labor_prod2024, na.rm = TRUE)
+    avg_labor_prod2024 = mean(labor_prod2024, na.rm = TRUE),
+    avg_labor_prod2025 = mean(labor_prod2025, na.rm = TRUE)
   )
 
 
@@ -589,7 +601,8 @@ patent_subset <- patent_combined %>%
   # 중복 사업자번호가 있을 경우 합산
   group_by(사업자번호_clean) %>%
   summarise(across(p2019:p2024, ~sum(.x, na.rm = TRUE))) %>%
-  ungroup()
+  ungroup() %>%
+  mutate(p2025=0) # 2025년은 데이터가 없으므로 0으로 채움
 
 cat("중복 합산 후 기업 수:", nrow(patent_subset), "\n\n")
 
@@ -599,7 +612,7 @@ cat("중복 합산 후 기업 수:", nrow(patent_subset), "\n\n")
 
 # 기존 특허 컬럼이 있으면 제거 (재결합 시 충돌 방지)
 merged_data <- merged_data %>%
-  select(-any_of(c("p2019", "p2020", "p2021", "p2022", "p2023", "p2024")))
+  select(-any_of(c("p2019", "p2020", "p2021", "p2022", "p2023", "p2024","p2025")))
 
 # left_join으로 특허 데이터 결합
 merged_data <- merged_data %>%
@@ -625,7 +638,8 @@ merged_data %>%
     p2021 = round(mean(p2021, na.rm = TRUE), 2),
     p2022 = round(mean(p2022, na.rm = TRUE), 2),
     p2023 = round(mean(p2023, na.rm = TRUE), 2),
-    p2024 = round(mean(p2024, na.rm = TRUE), 2)
+    p2024 = round(mean(p2024, na.rm = TRUE), 2),
+    p2025 = round(mean(p2025, na.rm = TRUE), 2)
   ) %>%
   print()
 
@@ -662,7 +676,9 @@ cat("=== 연도 고정 항목 ===\n")
 print(fixed_na, width = Inf)
 
 # ── 연도별 반복 항목 ───────────────────────────────────────────
-years <- 2019:2024
+# 2019 - 2025
+
+years <- 2019:2025
 
 result <- map_dfr(years, function(yr) {
   merged_data %>%
@@ -687,10 +703,10 @@ result <- map_dfr(years, function(yr) {
       na_수출_변환        = sum(is.na(.data[[paste0("exportamt", yr)]])), # 0이어야 정상
       
       # 노동생산성 (변환 컬럼)
-      na_노동생산성       = sum(is.na(.data[[paste0("labor_prod", yr)]])),
+      na_노동생산성       = sum(is.na(.data[[paste0("labor_prod", yr)]]))
       
       # 특허 (변환 컬럼)
-      na_특허             = sum(is.na(.data[[paste0("p", yr)]]))
+      #na_특허             = sum(is.na(.data[[paste0("p", yr)]]))
     )
 })
 
@@ -714,8 +730,9 @@ print(result, width = Inf)
 # 소재 아이씨티케이 주식회사 통제 / 6498700830
 # 소재 주식회사 리버콘 통제 / 2068685921
 # 소재 (주) 서남 통제 / 1298178832
+
 # ==============================================================================
-# 극단치 기업 제거 - 영업이익률(OPM) IQR k=3 기준 극단치
+# OPM 극단치 기업 제거 - 영업이익률(OPM) IQR k=3 기준 극단치
 # 사유: 매출 극소 스타트업의 대규모 R&D 손실로 OPM이 -200% 이하
 #       평균 OPM을 심각하게 왜곡 → DID 결과 신뢰성 저하
 # ==============================================================================

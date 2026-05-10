@@ -1,4 +1,6 @@
 #checkin
+# 2025년 자료 통합 
+
 
 install.packages("readxl")      # 엑셀 읽기
 install.packages("dplyr")       # 데이터 조작
@@ -36,6 +38,9 @@ valuesearch4 <- read_excel("4_ValueSearch_연구개발비_비율20260315.xlsx", 
 # 5 인건비 노무비 
 valuesearch5 <- read_excel("5_ValueSearch_인건비_노무비20260315.xlsx", skip = 1, col_types = "text")
 
+# 6 2025년 자료 
+valuesearch6 <- read_excel("6_VALUESearch_2025년 자료20260509.xlsx", skip = 1, col_types = "text")
+
 head(valuesearch1)
 names(valuesearch1)
 head(valuesearch2)
@@ -46,6 +51,8 @@ head(valuesearch4)
 names(valuesearch4)
 head(valuesearch5)
 names(valuesearch5)
+head(valuesearch6)
+names(valuesearch6)
 
 # 공통 컬럼 확인
 common_cols_v2 <- intersect(names(valuesearch1), names(valuesearch2))
@@ -82,6 +89,8 @@ valuesearch_final <- valuesearch_merged %>%
     by = "691020.사업자번호"
   )
 
+names(valuesearch_final)
+
 # 3단계: valuesearch4 병합
 common_cols_merged_v4 <- intersect(names(valuesearch_final), names(valuesearch4))
 
@@ -93,6 +102,8 @@ valuesearch_final <- valuesearch_final %>%
     by = "691020.사업자번호"
   )
 
+names(valuesearch_final)
+
 # 4단계: valuesearch5 병합
 common_cols_merged_v5 <- intersect(names(valuesearch_final), names(valuesearch5))
 
@@ -100,6 +111,19 @@ valuesearch_final <- valuesearch_final %>%
   left_join(
     valuesearch5 %>%
       select(-all_of(setdiff(common_cols_merged_v5, "691020.사업자번호"))) %>%
+      distinct(`691020.사업자번호`, .keep_all = TRUE),
+    by = "691020.사업자번호"
+  )
+
+names(valuesearch_final)
+
+# 5단계: valuesearch6 병합
+common_cols_merged_v6 <- intersect(names(valuesearch_final), names(valuesearch6))
+
+valuesearch_final <- valuesearch_final %>%
+  left_join(
+    valuesearch6 %>%
+      select(-all_of(setdiff(common_cols_merged_v6, "691020.사업자번호"))) %>%
       distinct(`691020.사업자번호`, .keep_all = TRUE),
     by = "691020.사업자번호"
   )
@@ -112,6 +136,7 @@ cat("valuesearch2 행:", nrow(valuesearch2), "/ 컬럼:", ncol(valuesearch2), "\
 cat("valuesearch3 행:", nrow(valuesearch3), "/ 컬럼:", ncol(valuesearch3), "\n")
 cat("valuesearch4 행:", nrow(valuesearch4), "/ 컬럼:", ncol(valuesearch4), "\n")  # ← 추가
 cat("valuesearch5 행:", nrow(valuesearch5), "/ 컬럼:", ncol(valuesearch5), "\n")  # ← 추가
+cat("valuesearch6 행:", nrow(valuesearch6), "/ 컬럼:", ncol(valuesearch6), "\n")  # ← 추가
 cat("valuesearch_final 행:", nrow(valuesearch_final), "/ 컬럼:", ncol(valuesearch_final), "\n")
 
 

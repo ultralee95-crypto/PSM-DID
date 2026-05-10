@@ -59,7 +59,7 @@ result = analysis_data %>%
     na_opm= sum(is.na(`opm2019`)),
     na_연구개발비 = sum(is.na(`rdcost2019`)),
     na_수출 = sum(is.na(`exportamt2019`)),
-    na_인건비 = sum(is.na('lbcost2019')),
+    na_인건비 = sum(is.na(`lbcost2019`)),
     #na_노무비 = sum(is.na(`mflbcost2019`))
    )
 
