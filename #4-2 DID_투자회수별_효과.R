@@ -22,6 +22,7 @@
 # 20260503
 # 결과 변수에서 자본금 삭제. OPM 로그변환 하지 않음(opm). 노무비 삭제하고 인건비로 통합(lbcost) 
 # Doubly Robust DID 추가 (자기자신 사전값 제외, 나머지 7개 통제)
+# 20260510 2025년도 데이터 추가.
 # ==============================================================================
 packages <- c("readxl", "dplyr", "tidyr", "ggplot2",
               "sandwich", "lmtest", "writexl",
@@ -75,7 +76,8 @@ safe_col <- function(row, col_name) {
   }
 }
 
-years <- 2018:2024
+# 2025년 데이터 추가 
+years <- 2018:2025
 
 panel_list <- lapply(1:nrow(matched), function(i) {
   row <- matched[i, ]
@@ -146,6 +148,12 @@ print(
 #1     부품 289 106 73 110
 #2     소재 155  51 49  55
 #3     장비  94  39 35  20
+
+# ★ 2025년 데이터 존재 여부 확인
+n_2025 <- sum(!is.na(panel$log_asset[panel$year == 2025]))
+cat(sprintf("\n2025년 log_asset 유효 관측치: %d / %d (%.0f%%)\n",
+            n_2025, length(unique(panel$firm_id)),
+            n_2025 / length(unique(panel$firm_id)) * 100))
 # ==============================================================================
 # 3. 분석 변수 정의
 # ==============================================================================
@@ -167,834 +175,878 @@ n_funded_levels <- c(1, 2, 3)
 n_funded_labels <- c("1" = "1회", "2" = "2회", "3" = "3회")
 
 # ==============================================================================
-# 4. Simple DID — 투자 횟수별 × 부문별
-#    처치(n회 지원) vs 통제(동일 부문 내 n_funded==0)
 # ==============================================================================
+POST_YEARS  <- c(2024, 2025)
+all_results <- list()
 
-cat("\n", paste(rep("=", 80), collapse = ""), "\n")
-cat("  투자 횟수별 Simple DID (Pre=2019, Post=2024)\n")
-cat(paste(rep("=", 80), collapse = ""), "\n")
+for (POST_YEAR in POST_YEARS) {
+  
+  cat("\n", paste(rep("=", 80), collapse=""), "\n")
+  cat(sprintf("  ★ POST YEAR = %d  (Pre=2019, Post=%d)\n",
+              POST_YEAR, POST_YEAR))
+  cat(paste(rep("=", 80), collapse=""), "\n")
 
-did_all <- list()  # 전체 결과 누적
+  # ============================================================================
+  # 4. Simple DID — 투자 횟수별 × 부문별
+  #    처치(n회 지원) vs 통제(동일 부문 내 n_funded==0)
+  # ============================================================================
 
-for (s in c(1, 2, 3)) {
-  seg_name <- seg_labels[as.character(s)]
+  cat("\n", paste(rep("=", 80), collapse = ""), "\n")
+  cat(sprintf("  투자 횟수별 Simple DID (Pre=2019, Post=%d)\n", POST_YEAR))
+  cat(paste(rep("=", 80), collapse = ""), "\n")
   
-  # ── 통제집단 (해당 부문, n_funded == 0, 2019/2024) ──
-  ctrl_pre  <- panel %>% filter(seg == s, n_funded == 0, year == 2019)
-  ctrl_post <- panel %>% filter(seg == s, n_funded == 0, year == 2024)
+  did_all <- list()  # 전체 결과 누적
   
-  ctrl_wide <- ctrl_pre %>%
-    select(firm_id) %>%
-    left_join(
-      ctrl_pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
-        rename_with(~ paste0(.x, "_pre"),  -firm_id), by = "firm_id") %>%
-    left_join(
-      ctrl_post %>% select(firm_id, all_of(ana_vars$var)) %>%
-        rename_with(~ paste0(.x, "_post"), -firm_id), by = "firm_id") %>%
-    mutate(treat_group = "통제", n_funded = 0)
-  
-  for (n in n_funded_levels) {
-    n_label <- n_funded_labels[as.character(n)]
+  for (s in c(1, 2, 3)) {
+    seg_name <- seg_labels[as.character(s)]
     
-    # ── 처치집단 (해당 부문, n_funded == n) ──
-    tr_pre  <- panel %>% filter(seg == s, n_funded == n, year == 2019)
-    tr_post <- panel %>% filter(seg == s, n_funded == n, year == 2024)
+    # ── 통제집단 (해당 부문, n_funded == 0, 2019/2024) ──
+    ctrl_pre  <- panel %>% filter(seg == s, n_funded == 0, year == 2019)
+    ctrl_post <- panel %>% filter(seg == s, n_funded == 0, year == POST_YEAR)
     
-    n_treat <- nrow(tr_pre)
-    n_ctrl  <- nrow(ctrl_pre)
-    
-    if (n_treat < 5) {
-      cat(sprintf("\n  [%s - %s] 처치 표본 부족 (N=%d), 건너뜀\n",
-                  seg_name, n_label, n_treat))
-      next
-    }
-    
-    tr_wide <- tr_pre %>%
+    ctrl_wide <- ctrl_pre %>%
       select(firm_id) %>%
       left_join(
-        tr_pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
+        ctrl_pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
           rename_with(~ paste0(.x, "_pre"),  -firm_id), by = "firm_id") %>%
       left_join(
-        tr_post %>% select(firm_id, all_of(ana_vars$var)) %>%
+        ctrl_post %>% select(firm_id, all_of(ana_vars$var)) %>%
           rename_with(~ paste0(.x, "_post"), -firm_id), by = "firm_id") %>%
-      mutate(treat_group = "처치", n_funded = n)
+      mutate(treat_group = "통제", n_funded = 0)
     
-    # 처치 + 통제 합치기 (treat 더미: 처치=1, 통제=0)
-    combined <- bind_rows(
-      tr_wide   %>% mutate(treat_dummy = 1L),
-      ctrl_wide %>% mutate(treat_dummy = 0L)
-    )
+    for (n in n_funded_levels) {
+      n_label <- n_funded_labels[as.character(n)]
+      
+      # ── 처치집단 (해당 부문, n_funded == n) ──
+      tr_pre  <- panel %>% filter(seg == s, n_funded == n, year == 2019)
+      #tr_post <- panel %>% filter(seg == s, n_funded == n, year == 2024)
+      tr_post <- panel %>% filter(seg == s, n_funded == n, year == POST_YEAR)
+      
+      n_treat <- nrow(tr_pre)
+      n_ctrl  <- nrow(ctrl_pre)
+      
+      if (n_treat < 5) {
+        cat(sprintf("\n  [%s - %s] 처치 표본 부족 (N=%d), 건너뜀\n",
+                    seg_name, n_label, n_treat))
+        next
+      }
+      
+      tr_wide <- tr_pre %>%
+        select(firm_id) %>%
+        left_join(
+          tr_pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
+            rename_with(~ paste0(.x, "_pre"),  -firm_id), by = "firm_id") %>%
+        left_join(
+          tr_post %>% select(firm_id, all_of(ana_vars$var)) %>%
+            rename_with(~ paste0(.x, "_post"), -firm_id), by = "firm_id") %>%
+        mutate(treat_group = "처치", n_funded = n)
+      
+      # 처치 + 통제 합치기 (treat 더미: 처치=1, 통제=0)
+      combined <- bind_rows(
+        tr_wide   %>% mutate(treat_dummy = 1L),
+        ctrl_wide %>% mutate(treat_dummy = 0L)
+      )
+      
+      # ── 헤더 출력 ──
+      cat(sprintf(
+        "\n─── %s  |  %s  (처치 N=%d, 통제 N=%d) ───\n",
+        seg_name, n_label, n_treat, n_ctrl))
+      cat(sprintf(
+        "  %-16s %10s %10s %10s %10s %10s %8s %5s\n",
+        "변수", "처치_pre", "처치_post", "통제_pre", "통제_post", "DID", "t값", "유의"))
+      cat("  ", paste(rep("-", 87), collapse = ""), "\n")
+      
+      seg_n_rows <- list()
+      
+      for (v in 1:nrow(ana_vars)) {
+        col_pre  <- paste0(ana_vars$var[v], "_pre")
+        col_post <- paste0(ana_vars$var[v], "_post")
+        
+        combined$diff <- combined[[col_post]] - combined[[col_pre]]
+        
+        t_pre  <- mean(combined[[col_pre]] [combined$treat_dummy == 1], na.rm = TRUE)
+        t_post <- mean(combined[[col_post]][combined$treat_dummy == 1], na.rm = TRUE)
+        c_pre  <- mean(combined[[col_pre]] [combined$treat_dummy == 0], na.rm = TRUE)
+        c_post <- mean(combined[[col_post]][combined$treat_dummy == 0], na.rm = TRUE)
+        
+        # DID = lm(diff ~ treat_dummy)
+        reg     <- lm(diff ~ treat_dummy, data = combined)
+        did_est <- coef(reg)["treat_dummy"]
+        t_val   <- summary(reg)$coefficients["treat_dummy", "t value"]
+        p_val   <- summary(reg)$coefficients["treat_dummy", "Pr(>|t|)"]
+        
+        cat(sprintf(
+          "  %-16s %10.4f %10.4f %10.4f %10.4f %10.4f %8.3f %5s\n",
+          ana_vars$label[v],
+          safe_num(t_pre), safe_num(t_post),
+          safe_num(c_pre), safe_num(c_post),
+          safe_num(did_est), safe_num(t_val),
+          safe_str(sig_mark(p_val))))
+        
+        seg_n_rows[[v]] <- data.frame(
+          부문      = seg_name,
+          투자횟수  = n_label,
+          n_funded  = n,
+          카테고리  = ana_vars$cat[v],
+          변수      = ana_vars$label[v],
+          N_처치    = n_treat,
+          N_통제    = n_ctrl,
+          처치_pre  = safe_num(t_pre),
+          처치_post = safe_num(t_post),
+          통제_pre  = safe_num(c_pre),
+          통제_post = safe_num(c_post),
+          DID       = safe_num(did_est),
+          t_value   = safe_num(t_val),
+          p_value   = safe_num(p_val),
+          유의성    = safe_str(sig_mark(p_val)),
+          stringsAsFactors = FALSE
+        )
+      }
+      
+      key <- paste0(seg_name, "_", n_label)
+      did_all[[key]] <- bind_rows(seg_n_rows)
+    }
+  }
+  
+  did_result <- bind_rows(did_all) %>% as.data.frame()
+  
+  # ==============================================================================
+  # 4-B. 0회 Reference 더미 모형
+  #      lm(diff ~ n_funded_f)  — 0회(통제)를 기준(ref)으로
+  #      n_funded_f1 = 1회 vs 0회 DID (절대 효과)
+  #      n_funded_f2 = 2회 vs 0회 DID (절대 효과)
+  #      n_funded_f3 = 3회 vs 0회 DID (절대 효과)
+  #
+  #  ▷ 핵심 해석:
+  #    • 0회를 Reference로 하면 각 횟수의 절대 효과와 횟수 간 상대적 차이를
+  #      단일 회귀에서 동시에 파악할 수 있어 3회 Reference보다 훨씬 풍부한 해석 가능
+  #    • linearHypothesis()로 횟수 간 이질성 F검정(3v1, 3v2, 2v1, 전체) 수행
+  # ==============================================================================
+  
+  cat("\n", paste(rep("=", 80), collapse = ""), "\n")
+  cat("  [4-B] 0회 Reference 더미 모형 — 투자 횟수별 절대 효과 + 횟수간 F검정\n")
+  cat("        lm(diff ~ n_funded_f),  ref = '0'\n")
+  cat(paste(rep("=", 80), collapse = ""), "\n")
+  
+  # ── 4그룹 Wide 데이터 생성 함수 ──────────────────────────────────────────────
+  # panel에서 pre(2019)/post(2024) 차이(diff)를 계산하여
+  # 투자 횟수(nf) 그룹의 wide 데이터프레임을 반환
+  make_wide4 <- function(seg_id, nf, post_yr) {
+    pre  <- panel %>% filter(seg == seg_id, n_funded == nf, year == 2019)
+    #post <- panel %>% filter(seg == seg_id, n_funded == nf, year == 2024)
+    post <- panel %>% filter(seg == seg_id, n_funded == nf, year == post_yr)
     
-    # ── 헤더 출력 ──
-    cat(sprintf(
-      "\n─── %s  |  %s  (처치 N=%d, 통제 N=%d) ───\n",
-      seg_name, n_label, n_treat, n_ctrl))
-    cat(sprintf(
-      "  %-16s %10s %10s %10s %10s %10s %8s %5s\n",
-      "변수", "처치_pre", "처치_post", "통제_pre", "통제_post", "DID", "t값", "유의"))
-    cat("  ", paste(rep("-", 87), collapse = ""), "\n")
+    if (nrow(pre) == 0) return(NULL)
     
-    seg_n_rows <- list()
+    pre %>%
+      select(firm_id) %>%
+      left_join(
+        pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
+          rename_with(~ paste0(.x, "_pre"), -firm_id),
+        by = "firm_id"
+      ) %>%
+      left_join(
+        post %>% select(firm_id, all_of(ana_vars$var)) %>%
+          rename_with(~ paste0(.x, "_post"), -firm_id),
+        by = "firm_id"
+      ) %>%
+      mutate(n_funded = as.character(nf))
+  }
+  
+  dummy_all <- list()
+  
+  for (s in c(1, 2, 3)) {
+    seg_name <- seg_labels[as.character(s)]
+    
+    # 0회/1회/2회/3회 wide 생성 후 합치기
+    w_list <- lapply(0:3, function(nf) make_wide4(s, nf, POST_YEAR))
+    w_list <- Filter(Negate(is.null), w_list)
+    
+    # 각 그룹의 표본 수 확인
+    n_counts <- sapply(0:3, function(nf) {
+      sum(panel$seg == s & panel$n_funded == nf & panel$year == 2019)
+    })
+    names(n_counts) <- paste0(0:3, "회")
+    cat(sprintf("\n[%s] 그룹별 표본: %s\n", seg_name,
+                paste(names(n_counts), n_counts, sep="=", collapse=", ")))
+    
+    combined4 <- bind_rows(w_list) %>%
+      mutate(n_funded_f = relevel(factor(n_funded), ref = "0"))
+    
+    # 유효한 투자 횟수 파악 (표본 >= 5)
+    valid_nf <- names(n_counts)[n_counts >= 5]
+    has_n3   <- "3회" %in% valid_nf  # 3회 존재 여부
+    
+    cat(sprintf("  %-16s %10s %10s %10s %10s %10s %10s %10s %8s\n",
+                "변수",
+                "Intercept", "1회_DID", "2회_DID", "3회_DID",
+                "p_1회", "p_2회", "p_3회", "F이질성"))
+    cat("  ", paste(rep("-", 106), collapse = ""), "\n")
+    
+    seg_dummy_rows <- list()
     
     for (v in 1:nrow(ana_vars)) {
       col_pre  <- paste0(ana_vars$var[v], "_pre")
       col_post <- paste0(ana_vars$var[v], "_post")
       
-      combined$diff <- combined[[col_post]] - combined[[col_pre]]
+      # diff 계산
+      combined4$diff <- combined4[[col_post]] - combined4[[col_pre]]
       
-      t_pre  <- mean(combined[[col_pre]] [combined$treat_dummy == 1], na.rm = TRUE)
-      t_post <- mean(combined[[col_post]][combined$treat_dummy == 1], na.rm = TRUE)
-      c_pre  <- mean(combined[[col_pre]] [combined$treat_dummy == 0], na.rm = TRUE)
-      c_post <- mean(combined[[col_post]][combined$treat_dummy == 0], na.rm = TRUE)
+      # 유효 obs 수 확인
+      sub_df <- combined4 %>% filter(!is.na(diff))
       
-      # DID = lm(diff ~ treat_dummy)
-      reg     <- lm(diff ~ treat_dummy, data = combined)
-      did_est <- coef(reg)["treat_dummy"]
-      t_val   <- summary(reg)$coefficients["treat_dummy", "t value"]
-      p_val   <- summary(reg)$coefficients["treat_dummy", "Pr(>|t|)"]
-      
-      cat(sprintf(
-        "  %-16s %10.4f %10.4f %10.4f %10.4f %10.4f %8.3f %5s\n",
-        ana_vars$label[v],
-        safe_num(t_pre), safe_num(t_post),
-        safe_num(c_pre), safe_num(c_post),
-        safe_num(did_est), safe_num(t_val),
-        safe_str(sig_mark(p_val))))
-      
-      seg_n_rows[[v]] <- data.frame(
-        부문      = seg_name,
-        투자횟수  = n_label,
-        n_funded  = n,
-        카테고리  = ana_vars$cat[v],
-        변수      = ana_vars$label[v],
-        N_처치    = n_treat,
-        N_통제    = n_ctrl,
-        처치_pre  = safe_num(t_pre),
-        처치_post = safe_num(t_post),
-        통제_pre  = safe_num(c_pre),
-        통제_post = safe_num(c_post),
-        DID       = safe_num(did_est),
-        t_value   = safe_num(t_val),
-        p_value   = safe_num(p_val),
-        유의성    = safe_str(sig_mark(p_val)),
-        stringsAsFactors = FALSE
-      )
-    }
-    
-    key <- paste0(seg_name, "_", n_label)
-    did_all[[key]] <- bind_rows(seg_n_rows)
-  }
-}
-
-did_result <- bind_rows(did_all) %>% as.data.frame()
-
-# ==============================================================================
-# 4-B. 0회 Reference 더미 모형
-#      lm(diff ~ n_funded_f)  — 0회(통제)를 기준(ref)으로
-#      n_funded_f1 = 1회 vs 0회 DID (절대 효과)
-#      n_funded_f2 = 2회 vs 0회 DID (절대 효과)
-#      n_funded_f3 = 3회 vs 0회 DID (절대 효과)
-#
-#  ▷ 핵심 해석:
-#    • 0회를 Reference로 하면 각 횟수의 절대 효과와 횟수 간 상대적 차이를
-#      단일 회귀에서 동시에 파악할 수 있어 3회 Reference보다 훨씬 풍부한 해석 가능
-#    • linearHypothesis()로 횟수 간 이질성 F검정(3v1, 3v2, 2v1, 전체) 수행
-# ==============================================================================
-
-cat("\n", paste(rep("=", 80), collapse = ""), "\n")
-cat("  [4-B] 0회 Reference 더미 모형 — 투자 횟수별 절대 효과 + 횟수간 F검정\n")
-cat("        lm(diff ~ n_funded_f),  ref = '0'\n")
-cat(paste(rep("=", 80), collapse = ""), "\n")
-
-# ── 4그룹 Wide 데이터 생성 함수 ──────────────────────────────────────────────
-# panel에서 pre(2019)/post(2024) 차이(diff)를 계산하여
-# 투자 횟수(nf) 그룹의 wide 데이터프레임을 반환
-make_wide4 <- function(seg_id, nf) {
-  pre  <- panel %>% filter(seg == seg_id, n_funded == nf, year == 2019)
-  post <- panel %>% filter(seg == seg_id, n_funded == nf, year == 2024)
-  
-  if (nrow(pre) == 0) return(NULL)
-  
-  pre %>%
-    select(firm_id) %>%
-    left_join(
-      pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
-        rename_with(~ paste0(.x, "_pre"), -firm_id),
-      by = "firm_id"
-    ) %>%
-    left_join(
-      post %>% select(firm_id, all_of(ana_vars$var)) %>%
-        rename_with(~ paste0(.x, "_post"), -firm_id),
-      by = "firm_id"
-    ) %>%
-    mutate(n_funded = as.character(nf))
-}
-
-dummy_all <- list()
-
-for (s in c(1, 2, 3)) {
-  seg_name <- seg_labels[as.character(s)]
-  
-  # 0회/1회/2회/3회 wide 생성 후 합치기
-  w_list <- lapply(0:3, function(nf) make_wide4(s, nf))
-  w_list <- Filter(Negate(is.null), w_list)
-  
-  # 각 그룹의 표본 수 확인
-  n_counts <- sapply(0:3, function(nf) {
-    sum(panel$seg == s & panel$n_funded == nf & panel$year == 2019)
-  })
-  names(n_counts) <- paste0(0:3, "회")
-  cat(sprintf("\n[%s] 그룹별 표본: %s\n", seg_name,
-              paste(names(n_counts), n_counts, sep="=", collapse=", ")))
-  
-  combined4 <- bind_rows(w_list) %>%
-    mutate(n_funded_f = relevel(factor(n_funded), ref = "0"))
-  
-  # 유효한 투자 횟수 파악 (표본 >= 5)
-  valid_nf <- names(n_counts)[n_counts >= 5]
-  has_n3   <- "3회" %in% valid_nf  # 3회 존재 여부
-  
-  cat(sprintf("  %-16s %10s %10s %10s %10s %10s %10s %10s %8s\n",
-              "변수",
-              "Intercept", "1회_DID", "2회_DID", "3회_DID",
-              "p_1회", "p_2회", "p_3회", "F이질성"))
-  cat("  ", paste(rep("-", 106), collapse = ""), "\n")
-  
-  seg_dummy_rows <- list()
-  
-  for (v in 1:nrow(ana_vars)) {
-    col_pre  <- paste0(ana_vars$var[v], "_pre")
-    col_post <- paste0(ana_vars$var[v], "_post")
-    
-    # diff 계산
-    combined4$diff <- combined4[[col_post]] - combined4[[col_pre]]
-    
-    # 유효 obs 수 확인
-    sub_df <- combined4 %>% filter(!is.na(diff))
-    
-    # 단일 회귀: 0회 기준 더미 모형
-    reg4 <- tryCatch(
-      lm(diff ~ n_funded_f, data = sub_df),
-      error = function(e) NULL
-    )
-    
-    if (is.null(reg4)) {
-      cat(sprintf("  %-16s  [회귀 실패]\n", ana_vars$label[v]))
-      next
-    }
-    
-    coef_sum <- summary(reg4)$coefficients
-    
-    # 계수 추출 (없으면 NA)
-    get_coef <- function(nm, col) {
-      if (nm %in% rownames(coef_sum)) coef_sum[nm, col] else NA_real_
-    }
-    
-    intercept <- get_coef("(Intercept)",  "Estimate")   # 0회 평균 diff
-    did_1     <- get_coef("n_funded_f1",  "Estimate")   # 1회 - 0회
-    did_2     <- get_coef("n_funded_f2",  "Estimate")   # 2회 - 0회
-    did_3     <- get_coef("n_funded_f3",  "Estimate")   # 3회 - 0회
-    p_1       <- get_coef("n_funded_f1",  "Pr(>|t|)")
-    p_2       <- get_coef("n_funded_f2",  "Pr(>|t|)")
-    p_3       <- get_coef("n_funded_f3",  "Pr(>|t|)")
-    
-    # 전체 이질성 F검정 (귀무: 1회=2회=3회=0회)
-    # 실제 존재하는 계수만으로 가설 구성
-    avail_dummies <- intersect(c("n_funded_f1", "n_funded_f2", "n_funded_f3"),
-                               rownames(coef_sum))
-    
-    p_ftest <- NA_real_
-    if (length(avail_dummies) >= 1) {
-      ft <- tryCatch(
-        linearHypothesis(reg4, paste(avail_dummies, "= 0")),
+      # 단일 회귀: 0회 기준 더미 모형
+      reg4 <- tryCatch(
+        lm(diff ~ n_funded_f, data = sub_df),
         error = function(e) NULL
       )
-      if (!is.null(ft)) p_ftest <- ft$`Pr(>F)`[2]
-    }
-    
-    # 횟수 간 쌍별 검정 (linearHypothesis)
-    get_pair_p <- function(h_str) {
-      tryCatch({
-        lh <- linearHypothesis(reg4, h_str)
-        lh$`Pr(>F)`[2]
-      }, error = function(e) NA_real_)
-    }
-    
-    p_3v1 <- if (!is.na(did_3) && !is.na(did_1))
-      get_pair_p("n_funded_f3 - n_funded_f1 = 0") else NA_real_
-    p_3v2 <- if (!is.na(did_3) && !is.na(did_2))
-      get_pair_p("n_funded_f3 - n_funded_f2 = 0") else NA_real_
-    p_2v1 <- if (!is.na(did_2) && !is.na(did_1))
-      get_pair_p("n_funded_f2 - n_funded_f1 = 0") else NA_real_
-    
-    cat(sprintf(
-      "  %-16s %10.4f %10s %10s %10s %10s %10s %10s %8s\n",
-      ana_vars$label[v],
-      safe_num(intercept),
-      ifelse(is.na(did_1), "   -   ",
-             sprintf("%6.4f%s", did_1, sig_mark(p_1))),
-      ifelse(is.na(did_2), "   -   ",
-             sprintf("%6.4f%s", did_2, sig_mark(p_2))),
-      ifelse(is.na(did_3), "   -   ",
-             sprintf("%6.4f%s", did_3, sig_mark(p_3))),
-      ifelse(is.na(p_1), "-", sprintf("%.4f", p_1)),
-      ifelse(is.na(p_2), "-", sprintf("%.4f", p_2)),
-      ifelse(is.na(p_3), "-", sprintf("%.4f", p_3)),
-      ifelse(is.na(p_ftest), "-", sig_mark(p_ftest))
-    ))
-    
-    # 쌍별 p값 별도 출력
-    cat(sprintf(
-      "  %-16s  쌍별검정: 3v1=%-7s 3v2=%-7s 2v1=%-7s\n",
-      "",
-      ifelse(is.na(p_3v1), "-", sprintf("%.4f", p_3v1)),
-      ifelse(is.na(p_3v2), "-", sprintf("%.4f", p_3v2)),
-      ifelse(is.na(p_2v1), "-", sprintf("%.4f", p_2v1))
-    ))
-    
-    seg_dummy_rows[[v]] <- data.frame(
-      부문        = seg_name,
-      카테고리    = ana_vars$cat[v],
-      변수        = ana_vars$label[v],
-      N_0회       = n_counts["0회"],
-      N_1회       = n_counts["1회"],
-      N_2회       = n_counts["2회"],
-      N_3회       = n_counts["3회"],
-      통제평균diff = safe_num(intercept),
-      DID_1회     = safe_num(did_1),   # 1회 vs 0회
-      DID_2회     = safe_num(did_2),   # 2회 vs 0회
-      DID_3회     = safe_num(did_3),   # 3회 vs 0회
-      p_1회       = safe_num(p_1),
-      p_2회       = safe_num(p_2),
-      p_3회       = safe_num(p_3),
-      sig_1회     = safe_str(sig_mark(p_1)),
-      sig_2회     = safe_str(sig_mark(p_2)),
-      sig_3회     = safe_str(sig_mark(p_3)),
-      p_F이질성   = safe_num(p_ftest),
-      sig_F이질성 = safe_str(sig_mark(p_ftest)),
-      p_3v1       = safe_num(p_3v1),   # 3회 vs 1회
-      p_3v2       = safe_num(p_3v2),   # 3회 vs 2회
-      p_2v1       = safe_num(p_2v1),   # 2회 vs 1회
-      stringsAsFactors = FALSE
-    )
-  }
-  
-  dummy_all[[seg_name]] <- bind_rows(seg_dummy_rows)
-}
-
-dummy_result <- bind_rows(dummy_all) %>% as.data.frame()
-
-cat("\n=== [4-B] 더미 모형 결과 요약 ===\n")
-cat("  해석 방법:\n")
-cat("  • 통제평균diff  = 통제(0회) 집단의 2019→2024 평균 변화량\n")
-cat("  • DID_1회/2회/3회 = 각 횟수 집단이 통제 대비 추가로 달성한 변화량\n")
-cat("  • p_F이질성   = 1회=2회=3회=0 귀무 하에서의 F검정 유의성\n")
-cat("  • p_3v1/3v2/2v1 = 쌍별 횟수 간 효과 차이 t검정\n")
-print(dummy_result[, c("부문","변수","통제평균diff",
-                       "DID_1회","sig_1회","DID_2회","sig_2회",
-                       "DID_3회","sig_3회","sig_F이질성")])
-# ==============================================================================
-# 4-C. Doubly Robust DID  [20260412 추가]  — #4-1 스타일 (OLS-augmented)
-#
-#  설계: 각 결과변수 Y_k에 대해 자기자신의 사전값(Y_k_pre)을 제외한
-#        나머지 7개 변수의 _pre 값을 통제변수로 추가한 OLS:
-#
-#          lm( diff ~ treat_dummy + X_{-k,pre} ),  diff = Y_post - Y_pre
-#
-#        treat_dummy 계수 = DR-DID 추정치
-#        통제군은 동일 부문 내 n_funded==0 기업, 처치군은 n_funded==n 기업
-#        부문(seg) × 투자횟수(n) × 결과변수(Y_k) 단위로 반복
-# ==============================================================================
-
-cat("\n", paste(rep("=", 80), collapse = ""), "\n")
-cat("  [4-C] Doubly Robust DID — lm(diff ~ treat + 7개 사전공변량)\n")
-cat(paste(rep("=", 80), collapse = ""), "\n")
-
-dr_all <- list()
-
-for (s in c(1, 2, 3)) {
-  seg_name <- seg_labels[as.character(s)]
-  
-  # ── 통제집단 wide (n_funded == 0) ──
-  ctrl_pre  <- panel %>% filter(seg == s, n_funded == 0, year == 2019)
-  ctrl_post <- panel %>% filter(seg == s, n_funded == 0, year == 2024)
-  
-  ctrl_wide_dr <- ctrl_pre %>%
-    select(firm_id) %>%
-    left_join(
-      ctrl_pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
-        rename_with(~ paste0(.x, "_pre"),  -firm_id), by = "firm_id") %>%
-    left_join(
-      ctrl_post %>% select(firm_id, all_of(ana_vars$var)) %>%
-        rename_with(~ paste0(.x, "_post"), -firm_id), by = "firm_id")
-  
-  for (n in n_funded_levels) {
-    n_label <- n_funded_labels[as.character(n)]
-    
-    # ── 처치집단 wide (n_funded == n) ──
-    tr_pre  <- panel %>% filter(seg == s, n_funded == n, year == 2019)
-    tr_post <- panel %>% filter(seg == s, n_funded == n, year == 2024)
-    
-    n_treat <- nrow(tr_pre)
-    n_ctrl  <- nrow(ctrl_pre)
-    
-    if (n_treat < 5) {
-      cat(sprintf("\n  [%s - %s] 처치 표본 부족 (N=%d), 건너뜀\n",
-                  seg_name, n_label, n_treat))
-      next
-    }
-    
-    tr_wide_dr <- tr_pre %>%
-      select(firm_id) %>%
-      left_join(
-        tr_pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
-          rename_with(~ paste0(.x, "_pre"),  -firm_id), by = "firm_id") %>%
-      left_join(
-        tr_post %>% select(firm_id, all_of(ana_vars$var)) %>%
-          rename_with(~ paste0(.x, "_post"), -firm_id), by = "firm_id")
-    
-    sub_wide <- bind_rows(
-      tr_wide_dr   %>% mutate(treat_dummy = 1L),
-      ctrl_wide_dr %>% mutate(treat_dummy = 0L)
-    )
-    
-    cat(sprintf(
-      "\n─── %s | %s (처치 N=%d, 통제 N=%d) ───\n",
-      seg_name, n_label, n_treat, n_ctrl))
-    cat(sprintf("  %-16s %12s %12s %10s %8s %10s %5s\n",
-                "변수", "DID_simple", "DID_DR", "SE_DR", "t_DR", "p_DR", "유의"))
-    cat("  ", paste(rep("-", 82), collapse = ""), "\n")
-    
-    seg_dr_rows <- list()
-    
-    for (v in 1:nrow(ana_vars)) {
-      var_k    <- ana_vars$var[v]
-      col_pre  <- paste0(var_k, "_pre")
-      col_post <- paste0(var_k, "_post")
       
-      sub_wide$diff <- sub_wide[[col_post]] - sub_wide[[col_pre]]
-      
-      # (A) Simple DID — 비교용
-      reg_s   <- tryCatch(lm(diff ~ treat_dummy, data = sub_wide),
-                          error = function(e) NULL)
-      did_s   <- if (!is.null(reg_s)) coef(reg_s)["treat_dummy"] else NA_real_
-      p_s     <- if (!is.null(reg_s))
-        summary(reg_s)$coefficients["treat_dummy", "Pr(>|t|)"] else NA_real_
-      
-      # (B) Doubly Robust — 자기자신 _pre 제외, 나머지 7개 _pre를 통제변수로
-      cov_pre <- setdiff(paste0(ana_vars$var, "_pre"), col_pre)
-      fmla    <- as.formula(paste("diff ~ treat_dummy +",
-                                  paste(cov_pre, collapse = " + ")))
-      reg_dr  <- tryCatch(lm(fmla, data = sub_wide),
-                          error = function(e) NULL)
-      
-      if (is.null(reg_dr) || !("treat_dummy" %in% rownames(summary(reg_dr)$coefficients))) {
-        cat(sprintf("  %-16s  [DR 회귀 실패]\n", ana_vars$label[v]))
+      if (is.null(reg4)) {
+        cat(sprintf("  %-16s  [회귀 실패]\n", ana_vars$label[v]))
         next
       }
       
-      dr_coefs <- summary(reg_dr)$coefficients
-      did_dr   <- dr_coefs["treat_dummy", "Estimate"]
-      se_dr    <- dr_coefs["treat_dummy", "Std. Error"]
-      t_dr     <- dr_coefs["treat_dummy", "t value"]
-      p_dr     <- dr_coefs["treat_dummy", "Pr(>|t|)"]
+      coef_sum <- summary(reg4)$coefficients
       
-      cat(sprintf("  %-16s %12.4f %12.4f %10.4f %8.3f %10.4f %5s\n",
-                  ana_vars$label[v],
-                  safe_num(did_s),  safe_num(did_dr),
-                  safe_num(se_dr),  safe_num(t_dr),
-                  safe_num(p_dr),   safe_str(sig_mark(p_dr))))
-      
-      # 통제변수 효과 출력 (#4-1 스타일)
-      cat(sprintf("    [DR 통제변수] "))
-      for (cv in cov_pre) {
-        if (cv %in% rownames(dr_coefs)) {
-          cv_b <- dr_coefs[cv, "Estimate"]
-          cv_p <- dr_coefs[cv, "Pr(>|t|)"]
-          cat(sprintf("%s=%.3f(%s) ", cv, cv_b, sig_mark(cv_p)))
-        }
+      # 계수 추출 (없으면 NA)
+      get_coef <- function(nm, col) {
+        if (nm %in% rownames(coef_sum)) coef_sum[nm, col] else NA_real_
       }
-      cat("\n")
       
-      seg_dr_rows[[v]] <- data.frame(
+      intercept <- get_coef("(Intercept)",  "Estimate")   # 0회 평균 diff
+      did_1     <- get_coef("n_funded_f1",  "Estimate")   # 1회 - 0회
+      did_2     <- get_coef("n_funded_f2",  "Estimate")   # 2회 - 0회
+      did_3     <- get_coef("n_funded_f3",  "Estimate")   # 3회 - 0회
+      p_1       <- get_coef("n_funded_f1",  "Pr(>|t|)")
+      p_2       <- get_coef("n_funded_f2",  "Pr(>|t|)")
+      p_3       <- get_coef("n_funded_f3",  "Pr(>|t|)")
+      
+      # 전체 이질성 F검정 (귀무: 1회=2회=3회=0회)
+      # 실제 존재하는 계수만으로 가설 구성
+      avail_dummies <- intersect(c("n_funded_f1", "n_funded_f2", "n_funded_f3"),
+                                 rownames(coef_sum))
+      
+      p_ftest <- NA_real_
+      if (length(avail_dummies) >= 1) {
+        ft <- tryCatch(
+          linearHypothesis(reg4, paste(avail_dummies, "= 0")),
+          error = function(e) NULL
+        )
+        if (!is.null(ft)) p_ftest <- ft$`Pr(>F)`[2]
+      }
+      
+      # 횟수 간 쌍별 검정 (linearHypothesis)
+      get_pair_p <- function(h_str) {
+        tryCatch({
+          lh <- linearHypothesis(reg4, h_str)
+          lh$`Pr(>F)`[2]
+        }, error = function(e) NA_real_)
+      }
+      
+      p_3v1 <- if (!is.na(did_3) && !is.na(did_1))
+        get_pair_p("n_funded_f3 - n_funded_f1 = 0") else NA_real_
+      p_3v2 <- if (!is.na(did_3) && !is.na(did_2))
+        get_pair_p("n_funded_f3 - n_funded_f2 = 0") else NA_real_
+      p_2v1 <- if (!is.na(did_2) && !is.na(did_1))
+        get_pair_p("n_funded_f2 - n_funded_f1 = 0") else NA_real_
+      
+      cat(sprintf(
+        "  %-16s %10.4f %10s %10s %10s %10s %10s %10s %8s\n",
+        ana_vars$label[v],
+        safe_num(intercept),
+        ifelse(is.na(did_1), "   -   ",
+               sprintf("%6.4f%s", did_1, sig_mark(p_1))),
+        ifelse(is.na(did_2), "   -   ",
+               sprintf("%6.4f%s", did_2, sig_mark(p_2))),
+        ifelse(is.na(did_3), "   -   ",
+               sprintf("%6.4f%s", did_3, sig_mark(p_3))),
+        ifelse(is.na(p_1), "-", sprintf("%.4f", p_1)),
+        ifelse(is.na(p_2), "-", sprintf("%.4f", p_2)),
+        ifelse(is.na(p_3), "-", sprintf("%.4f", p_3)),
+        ifelse(is.na(p_ftest), "-", sig_mark(p_ftest))
+      ))
+      
+      # 쌍별 p값 별도 출력
+      cat(sprintf(
+        "  %-16s  쌍별검정: 3v1=%-7s 3v2=%-7s 2v1=%-7s\n",
+        "",
+        ifelse(is.na(p_3v1), "-", sprintf("%.4f", p_3v1)),
+        ifelse(is.na(p_3v2), "-", sprintf("%.4f", p_3v2)),
+        ifelse(is.na(p_2v1), "-", sprintf("%.4f", p_2v1))
+      ))
+      
+      seg_dummy_rows[[v]] <- data.frame(
         부문        = seg_name,
-        투자횟수    = n_label,
-        n_funded    = n,
         카테고리    = ana_vars$cat[v],
         변수        = ana_vars$label[v],
-        N_처치      = n_treat,
-        N_통제      = n_ctrl,
-        DID_simple  = safe_num(did_s),
-        p_simple    = safe_num(p_s),
-        sig_simple  = safe_str(sig_mark(p_s)),
-        DID_DR      = safe_num(did_dr),
-        SE_DR       = safe_num(se_dr),
-        t_DR        = safe_num(t_dr),
-        p_DR        = safe_num(p_dr),
-        sig_DR      = safe_str(sig_mark(p_dr)),
+        N_0회       = n_counts["0회"],
+        N_1회       = n_counts["1회"],
+        N_2회       = n_counts["2회"],
+        N_3회       = n_counts["3회"],
+        통제평균diff = safe_num(intercept),
+        DID_1회     = safe_num(did_1),   # 1회 vs 0회
+        DID_2회     = safe_num(did_2),   # 2회 vs 0회
+        DID_3회     = safe_num(did_3),   # 3회 vs 0회
+        p_1회       = safe_num(p_1),
+        p_2회       = safe_num(p_2),
+        p_3회       = safe_num(p_3),
+        sig_1회     = safe_str(sig_mark(p_1)),
+        sig_2회     = safe_str(sig_mark(p_2)),
+        sig_3회     = safe_str(sig_mark(p_3)),
+        p_F이질성   = safe_num(p_ftest),
+        sig_F이질성 = safe_str(sig_mark(p_ftest)),
+        p_3v1       = safe_num(p_3v1),   # 3회 vs 1회
+        p_3v2       = safe_num(p_3v2),   # 3회 vs 2회
+        p_2v1       = safe_num(p_2v1),   # 2회 vs 1회
         stringsAsFactors = FALSE
       )
     }
     
-    key <- paste0(seg_name, "_", n_label)
-    dr_all[[key]] <- bind_rows(seg_dr_rows)
+    dummy_all[[seg_name]] <- bind_rows(seg_dummy_rows)
   }
-}
-
-dr_result <- bind_rows(dr_all) %>% as.data.frame()
-
-cat("\n=== [4-C] DR-DID 결과 요약 ===\n")
-cat("  해석 방법:\n")
-cat("  • DID_simple = lm(diff ~ treat_dummy)             — 단순 DID 비교용\n")
-cat("  • DID_DR     = lm(diff ~ treat_dummy + X_-k,pre) — 7개 사전공변량 통제\n")
-cat("                  → treat_dummy 계수 = DR-DID 추정량\n")
-print(dr_result[, c("부문","투자횟수","변수",
-                    "DID_simple","sig_simple",
-                    "DID_DR","SE_DR","p_DR","sig_DR")])
-
-# ==============================================================================
-# 5. Wide 비교표 — 투자횟수 × 변수  (부문별 파일로 분리)
-# ==============================================================================
-
-cat("\n", paste(rep("=", 80), collapse = ""), "\n")
-cat("  Wide 비교표 (DID 추정량 | 부문 × 투자횟수 × 변수)\n")
-cat(paste(rep("=", 80), collapse = ""), "\n")
-
-wide_list <- list()
-
-for (s in c(1, 2, 3)) {
-  seg_name <- seg_labels[as.character(s)]
   
-  wide <- did_result %>%
-    filter(부문 == seg_name) %>%
-    select(변수, 투자횟수, DID, p_value, 유의성) %>%
-    pivot_wider(
-      names_from  = 투자횟수,
-      values_from = c(DID, p_value, 유의성),
-      names_glue  = "{투자횟수}_{.value}"
-    ) %>%
-    select(변수,
-           `1회_DID`, `1회_p_value`, `1회_유의성`,
-           `2회_DID`, `2회_p_value`, `2회_유의성`,
-           `3회_DID`, `3회_p_value`, `3회_유의성`) %>%
-    as.data.frame()
+  dummy_result <- bind_rows(dummy_all) %>% as.data.frame()
   
-  cat(sprintf("\n=== %s 부문 ===\n", seg_name))
-  print(wide)
+  cat("\n=== [4-B] 더미 모형 결과 요약 ===\n")
+  cat("  해석 방법:\n")
+  cat("  • 통제평균diff  = 통제(0회) 집단의 2019→2024 평균 변화량\n")
+  cat("  • DID_1회/2회/3회 = 각 횟수 집단이 통제 대비 추가로 달성한 변화량\n")
+  cat("  • p_F이질성   = 1회=2회=3회=0 귀무 하에서의 F검정 유의성\n")
+  cat("  • p_3v1/3v2/2v1 = 쌍별 횟수 간 효과 차이 t검정\n")
+  print(dummy_result[, c("부문","변수","통제평균diff",
+                         "DID_1회","sig_1회","DID_2회","sig_2회",
+                         "DID_3회","sig_3회","sig_F이질성")])
+  # ==============================================================================
+  # 4-C. Doubly Robust DID  [20260412 추가]  — #4-1 스타일 (OLS-augmented)
+  #
+  #  설계: 각 결과변수 Y_k에 대해 자기자신의 사전값(Y_k_pre)을 제외한
+  #        나머지 7개 변수의 _pre 값을 통제변수로 추가한 OLS:
+  #
+  #          lm( diff ~ treat_dummy + X_{-k,pre} ),  diff = Y_post - Y_pre
+  #
+  #        treat_dummy 계수 = DR-DID 추정치
+  #        통제군은 동일 부문 내 n_funded==0 기업, 처치군은 n_funded==n 기업
+  #        부문(seg) × 투자횟수(n) × 결과변수(Y_k) 단위로 반복
+  # ==============================================================================
   
-  wide_list[[seg_name]] <- wide
-}
-
-# ==============================================================================
-# 6. 평행추세 검정 — 투자횟수별 × 부문별 (2018→2019 기울기 차이)
-# ==============================================================================
-
-cat("\n", paste(rep("=", 80), collapse = ""), "\n")
-cat("  평행추세 검정 (Pre-trend: 2018→2019 slope t-test)\n")
-cat(paste(rep("=", 80), collapse = ""), "\n")
-
-pt_all <- list()
-
-for (s in c(1, 2, 3)) {
-  seg_name <- seg_labels[as.character(s)]
+  cat("\n", paste(rep("=", 80), collapse = ""), "\n")
+  cat("  [4-C] Doubly Robust DID — lm(diff ~ treat + 7개 사전공변량)\n")
+  cat(paste(rep("=", 80), collapse = ""), "\n")
   
-  # 통제집단 2018→2019 차분
-  ctrl_sub <- panel %>% filter(seg == s, n_funded == 0)
-  ctrl_d18 <- ctrl_sub %>% filter(year == 2018) %>%
-    select(firm_id, all_of(ana_vars$var))
-  ctrl_d19 <- ctrl_sub %>% filter(year == 2019) %>%
-    select(firm_id, all_of(ana_vars$var))
-  ctrl_diff <- left_join(ctrl_d18, ctrl_d19, by = "firm_id",
-                         suffix = c("_18", "_19"))
+  dr_all <- list()
   
-  for (n in n_funded_levels) {
-    n_label <- n_funded_labels[as.character(n)]
-    tr_sub  <- panel %>% filter(seg == s, n_funded == n)
+  for (s in c(1, 2, 3)) {
+    seg_name <- seg_labels[as.character(s)]
     
-    if (nrow(tr_sub %>% filter(year == 2019)) < 5) next
+    # ── 통제집단 wide (n_funded == 0) ──
+    ctrl_pre  <- panel %>% filter(seg == s, n_funded == 0, year == 2019)
+    #ctrl_post <- panel %>% filter(seg == s, n_funded == 0, year == 2024)
+    ctrl_post <- panel %>% filter(seg == s, n_funded == 0, year == POST_YEAR)
     
-    # 처치집단도 동일하게 2018→2019 차분
-    tr_d18  <- tr_sub %>% filter(year == 2018) %>%
-      select(firm_id, all_of(ana_vars$var))
-    tr_d19  <- tr_sub %>% filter(year == 2019) %>%
-      select(firm_id, all_of(ana_vars$var))
-    tr_diff <- left_join(tr_d18, tr_d19, by = "firm_id",
-                         suffix = c("_18", "_19"))
+    ctrl_wide_dr <- ctrl_pre %>%
+      select(firm_id) %>%
+      left_join(
+        ctrl_pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
+          rename_with(~ paste0(.x, "_pre"),  -firm_id), by = "firm_id") %>%
+      left_join(
+        ctrl_post %>% select(firm_id, all_of(ana_vars$var)) %>%
+          rename_with(~ paste0(.x, "_post"), -firm_id), by = "firm_id")
     
-    cat(sprintf("\n─── %s | %s ───\n", seg_name, n_label))
-    cat(sprintf("  %-16s %8s %8s  %s\n", "변수", "t값", "p값", "판정"))
-    cat("  ", paste(rep("-", 46), collapse = ""), "\n")
-    
-    for (v in 1:nrow(ana_vars)) {
-      vname <- ana_vars$var[v]
-      label <- ana_vars$label[v]
+    for (n in n_funded_levels) {
+      n_label <- n_funded_labels[as.character(n)]
       
-      # 기울기 = 2019 - 2018 (처치·통제 모두 동일 기준)
-      tr_slope <- tr_diff[[paste0(vname, "_19")]] -
-        tr_diff[[paste0(vname, "_18")]]
-      ct_slope <- ctrl_diff[[paste0(vname, "_19")]] -
-        ctrl_diff[[paste0(vname, "_18")]]
+      # ── 처치집단 wide (n_funded == n) ──
+      tr_pre  <- panel %>% filter(seg == s, n_funded == n, year == 2019)
+      #tr_post <- panel %>% filter(seg == s, n_funded == n, year == 2024)
+      tr_post <- panel %>% filter(seg == s, n_funded == n, year == POST_YEAR)
       
-      tr_slope <- tr_slope[!is.na(tr_slope)]
-      ct_slope <- ct_slope[!is.na(ct_slope)]
+      n_treat <- nrow(tr_pre)
+      n_ctrl  <- nrow(ctrl_pre)
       
-      if (length(tr_slope) < 3 || length(ct_slope) < 3) {
-        pt_all[[paste(seg_name, n_label, label)]] <-
-          data.frame(부문=seg_name, 투자횟수=n_label, 변수=label,
-                     t값=NA_real_, p값=NA_real_, 판정="n/a",
-                     stringsAsFactors=FALSE)
+      if (n_treat < 5) {
+        cat(sprintf("\n  [%s - %s] 처치 표본 부족 (N=%d), 건너뜀\n",
+                    seg_name, n_label, n_treat))
         next
       }
       
-      tt   <- t.test(tr_slope, ct_slope, var.equal = FALSE)
-      t_v  <- as.numeric(tt$statistic)
-      p_v  <- tt$p.value
-      judg <- ifelse(p_v > 0.1,  "✅ 충족",
-                     ifelse(p_v > 0.05, "⚠ 경계", "❌ 위반"))
+      tr_wide_dr <- tr_pre %>%
+        select(firm_id) %>%
+        left_join(
+          tr_pre  %>% select(firm_id, all_of(ana_vars$var)) %>%
+            rename_with(~ paste0(.x, "_pre"),  -firm_id), by = "firm_id") %>%
+        left_join(
+          tr_post %>% select(firm_id, all_of(ana_vars$var)) %>%
+            rename_with(~ paste0(.x, "_post"), -firm_id), by = "firm_id")
       
-      cat(sprintf("  %-16s %8.3f %8.4f  %s\n",
-                  label, safe_num(t_v), safe_num(p_v), judg))
+      sub_wide <- bind_rows(
+        tr_wide_dr   %>% mutate(treat_dummy = 1L),
+        ctrl_wide_dr %>% mutate(treat_dummy = 0L)
+      )
       
-      pt_all[[paste(seg_name, n_label, label)]] <-
-        data.frame(부문=seg_name, 투자횟수=n_label, n_funded=n,
-                   변수=label,
-                   t값=round(t_v, 4), p값=round(p_v, 4),
-                   판정=judg, stringsAsFactors=FALSE)
+      cat(sprintf(
+        "\n─── %s | %s (처치 N=%d, 통제 N=%d) ───\n",
+        seg_name, n_label, n_treat, n_ctrl))
+      cat(sprintf("  %-16s %12s %12s %10s %8s %10s %5s\n",
+                  "변수", "DID_simple", "DID_DR", "SE_DR", "t_DR", "p_DR", "유의"))
+      cat("  ", paste(rep("-", 82), collapse = ""), "\n")
+      
+      seg_dr_rows <- list()
+      
+      for (v in 1:nrow(ana_vars)) {
+        var_k    <- ana_vars$var[v]
+        col_pre  <- paste0(var_k, "_pre")
+        col_post <- paste0(var_k, "_post")
+        
+        sub_wide$diff <- sub_wide[[col_post]] - sub_wide[[col_pre]]
+        
+        # (A) Simple DID — 비교용
+        reg_s   <- tryCatch(lm(diff ~ treat_dummy, data = sub_wide),
+                            error = function(e) NULL)
+        did_s   <- if (!is.null(reg_s)) coef(reg_s)["treat_dummy"] else NA_real_
+        p_s     <- if (!is.null(reg_s))
+          summary(reg_s)$coefficients["treat_dummy", "Pr(>|t|)"] else NA_real_
+        
+        # (B) Doubly Robust — 자기자신 _pre 제외, 나머지 7개 _pre를 통제변수로
+        cov_pre <- setdiff(paste0(ana_vars$var, "_pre"), col_pre)
+        fmla    <- as.formula(paste("diff ~ treat_dummy +",
+                                    paste(cov_pre, collapse = " + ")))
+        reg_dr  <- tryCatch(lm(fmla, data = sub_wide),
+                            error = function(e) NULL)
+        
+        if (is.null(reg_dr) || !("treat_dummy" %in% rownames(summary(reg_dr)$coefficients))) {
+          cat(sprintf("  %-16s  [DR 회귀 실패]\n", ana_vars$label[v]))
+          next
+        }
+        
+        dr_coefs <- summary(reg_dr)$coefficients
+        did_dr   <- dr_coefs["treat_dummy", "Estimate"]
+        se_dr    <- dr_coefs["treat_dummy", "Std. Error"]
+        t_dr     <- dr_coefs["treat_dummy", "t value"]
+        p_dr     <- dr_coefs["treat_dummy", "Pr(>|t|)"]
+        
+        cat(sprintf("  %-16s %12.4f %12.4f %10.4f %8.3f %10.4f %5s\n",
+                    ana_vars$label[v],
+                    safe_num(did_s),  safe_num(did_dr),
+                    safe_num(se_dr),  safe_num(t_dr),
+                    safe_num(p_dr),   safe_str(sig_mark(p_dr))))
+        
+        # 통제변수 효과 출력 (#4-1 스타일)
+        cat(sprintf("    [DR 통제변수] "))
+        for (cv in cov_pre) {
+          if (cv %in% rownames(dr_coefs)) {
+            cv_b <- dr_coefs[cv, "Estimate"]
+            cv_p <- dr_coefs[cv, "Pr(>|t|)"]
+            cat(sprintf("%s=%.3f(%s) ", cv, cv_b, sig_mark(cv_p)))
+          }
+        }
+        cat("\n")
+        
+        seg_dr_rows[[v]] <- data.frame(
+          부문        = seg_name,
+          투자횟수    = n_label,
+          n_funded    = n,
+          카테고리    = ana_vars$cat[v],
+          변수        = ana_vars$label[v],
+          N_처치      = n_treat,
+          N_통제      = n_ctrl,
+          DID_simple  = safe_num(did_s),
+          p_simple    = safe_num(p_s),
+          sig_simple  = safe_str(sig_mark(p_s)),
+          DID_DR      = safe_num(did_dr),
+          SE_DR       = safe_num(se_dr),
+          t_DR        = safe_num(t_dr),
+          p_DR        = safe_num(p_dr),
+          sig_DR      = safe_str(sig_mark(p_dr)),
+          stringsAsFactors = FALSE
+        )
+      }
+      
+      key <- paste0(seg_name, "_", n_label)
+      dr_all[[key]] <- bind_rows(seg_dr_rows)
     }
   }
-}
-
-pt_result <- bind_rows(pt_all) %>% as.data.frame()
-
-cat("\n=== 평행추세 결과 요약 ===\n")
-print(pt_result)
-
-# ==============================================================================
-# 7. 시각화
-# ==============================================================================
-
-if (Sys.info()["sysname"] == "Darwin") {
-  kfont <- "AppleGothic"
-} else if (Sys.info()["sysname"] == "Windows") {
-  kfont <- "Malgun Gothic"
-} else {
-  kfont <- "NanumGothic"
-}
-
-# 색상 팔레트
-col_ctrl    <- "#4A90D9"   # 통제
-col_1time   <- "#91C46C"   # 1회
-col_2times  <- "#F5A623"   # 2회
-col_3times  <- "#E05555"   # 3회
-
-nf_colors <- c("통제" = col_ctrl,
-               "1회"  = col_1time,
-               "2회"  = col_2times,
-               "3회"  = col_3times)
-
-# ── (A) DID 계수 dot-plot: 부문 × 투자횟수 × 변수 ──────────────────────────
-plot_did <- did_result %>%
-  mutate(
-    변수     = factor(변수, levels = rev(ana_vars$label)),
-    투자횟수 = factor(투자횟수, levels = c("1회", "2회", "3회")),
-    부문     = factor(부문, levels = c("소재", "부품", "장비")),
-    유의     = ifelse(p_value < 0.05, "유의(p<0.05)", "비유의")
-  )
-
-p_dot <- ggplot(plot_did,
-                aes(x = DID, y = 변수, color = 투자횟수, shape = 유의)) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
-  geom_point(size = 3.2, position = position_dodge(width = 0.7)) +
-  scale_color_manual(values = c("1회" = col_1time,
-                                "2회" = col_2times,
-                                "3회" = col_3times)) +
-  scale_shape_manual(values = c("유의(p<0.05)" = 16, "비유의" = 1)) +
-  facet_wrap(~ 부문, ncol = 3, scales = "free_x") +
-  labs(
-    title    = "투자 횟수별 Simple DID 추정량",
-    subtitle = "Pre=2019, Post=2024 | 부문 × 투자횟수 × 변수",
-    x = "DID 계수", y = NULL, color = "투자횟수", shape = "유의성"
-  ) +
-  theme_minimal(base_family = kfont) +
-  theme(
-    plot.title      = element_text(face = "bold", size = 14),
-    strip.text      = element_text(face = "bold", size = 12),
-    legend.position = "top",
-    axis.text.y     = element_text(size = 9)
-  )
-
-ggsave("DID_Nfunded_dotplot.png", p_dot, width = 15, height = 9, dpi = 300)
-cat("\n✓ DID_Nfunded_dotplot.png 저장\n")
-
-# ── (B) 카테고리별 Facet bar: 부문 × 투자횟수 ───────────────────────────────
-p_bar <- ggplot(plot_did,
-                aes(x = 변수, y = DID, fill = 투자횟수, alpha = 유의)) +
-  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray30") +
-  scale_fill_manual(values = c("1회" = col_1time,
-                               "2회" = col_2times,
-                               "3회" = col_3times)) +
-  scale_alpha_manual(values = c("유의(p<0.05)" = 1.0, "비유의" = 0.45),
-                     guide  = "none") +
-  facet_grid(부문 ~ 카테고리, scales = "free_x") +
-  labs(
-    title    = "투자 횟수별 DID 추정량 — 카테고리 × 부문",
-    subtitle = "진한 색 = 유의(p<0.05), 연한 색 = 비유의",
-    x = NULL, y = "DID 계수", fill = "투자횟수"
-  ) +
-  theme_minimal(base_family = kfont) +
-  theme(
-    plot.title      = element_text(face = "bold", size = 13),
-    strip.text      = element_text(face = "bold", size = 10),
-    axis.text.x     = element_text(angle = 40, hjust = 1, size = 8),
-    legend.position = "top"
-  )
-
-ggsave("DID_Nfunded_barplot.png", p_bar, width = 16, height = 12, dpi = 300)
-cat("✓ DID_Nfunded_barplot.png 저장\n")
-
-# ── (C) 평행추세 추이 — 부문별, 대표 변수(자산) × 투자횟수 ──────────────────
-# 연도별 평균 (n_funded 그룹별)
-trend_nf <- panel %>%
-  filter(year %in% 2019:2024) %>%
-  mutate(
-    그룹 = case_when(
-      n_funded == 0 ~ "통제",
-      n_funded == 1 ~ "1회",
-      n_funded == 2 ~ "2회",
-      n_funded == 3 ~ "3회"
-    ),
-    그룹 = factor(그룹, levels = c("통제", "1회", "2회", "3회"))
-  )
-
-# 대표 변수 4개 × 부문 3개 그리드
-key_vars   <- c("log_asset", "log_sales", "log_patent", "log_rdcost")
-key_labels <- c("ln자산", "ln매출", "ln(특허+1)", "ln(개발비+1)")
-
-trend_plots <- list()
-idx <- 1
-
-for (s in c(1, 2, 3)) {
-  seg_name <- seg_labels[as.character(s)]
-  sub_nf   <- trend_nf %>% filter(seg == s)
   
-  for (vi in seq_along(key_vars)) {
-    varname <- key_vars[vi]
-    label   <- key_labels[vi]
+  dr_result <- bind_rows(dr_all) %>% as.data.frame()
+  
+  cat("\n=== [4-C] DR-DID 결과 요약 ===\n")
+  cat("  해석 방법:\n")
+  cat("  • DID_simple = lm(diff ~ treat_dummy)             — 단순 DID 비교용\n")
+  cat("  • DID_DR     = lm(diff ~ treat_dummy + X_-k,pre) — 7개 사전공변량 통제\n")
+  cat("                  → treat_dummy 계수 = DR-DID 추정량\n")
+  print(dr_result[, c("부문","투자횟수","변수",
+                      "DID_simple","sig_simple",
+                      "DID_DR","SE_DR","p_DR","sig_DR")])
+  
+  # ==============================================================================
+  # 5. Wide 비교표 — 투자횟수 × 변수  (부문별 파일로 분리)
+  # ==============================================================================
+  
+  cat("\n", paste(rep("=", 80), collapse = ""), "\n")
+  cat("  Wide 비교표 (DID 추정량 | 부문 × 투자횟수 × 변수)\n")
+  cat(paste(rep("=", 80), collapse = ""), "\n")
+  
+  wide_list <- list()
+  
+  for (s in c(1, 2, 3)) {
+    seg_name <- seg_labels[as.character(s)]
     
-    se_df <- sub_nf %>%
-      filter(!is.na(.data[[varname]])) %>%
-      group_by(year, 그룹) %>%
-      summarise(
-        m  = mean(.data[[varname]], na.rm = TRUE),
-        se = sd(.data[[varname]],   na.rm = TRUE) / sqrt(n()),
-        .groups = "drop"
-      )
+    wide <- did_result %>%
+      filter(부문 == seg_name) %>%
+      select(변수, 투자횟수, DID, p_value, 유의성) %>%
+      pivot_wider(
+        names_from  = 투자횟수,
+        values_from = c(DID, p_value, 유의성),
+        names_glue  = "{투자횟수}_{.value}"
+      ) %>%
+      select(변수,
+             `1회_DID`, `1회_p_value`, `1회_유의성`,
+             `2회_DID`, `2회_p_value`, `2회_유의성`,
+             `3회_DID`, `3회_p_value`, `3회_유의성`) %>%
+      as.data.frame()
     
-    trend_plots[[idx]] <- ggplot(se_df, aes(x = year, y = m,
-                                            color = 그룹, fill = 그룹)) +
-      geom_ribbon(aes(ymin = m - 1.96*se, ymax = m + 1.96*se),
-                  alpha = 0.10, color = NA) +
-      geom_line(linewidth = 1.0) +
-      geom_point(size = 1.8) +
-      annotate("rect", xmin = 2019.5, xmax = 2022.5,
-               ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "gold") +
-      geom_vline(xintercept = 2019.5, linetype = "dashed",
-                 color = "gray50", linewidth = 0.5) +
-      scale_color_manual(values = nf_colors) +
-      scale_fill_manual( values = nf_colors) +
-      scale_x_continuous(breaks = 2019:2024) +
-      labs(title = paste0(seg_name, " | ", label),
-           x = NULL, y = NULL, color = NULL, fill = NULL) +
-      theme_minimal(base_family = kfont) +
-      theme(
-        plot.title      = element_text(face = "bold", size = 9),
-        axis.text.x     = element_text(size = 7, angle = 30, hjust = 1),
-        axis.text.y     = element_text(size = 7),
-        legend.position = if (idx == 1) "top" else "none",
-        legend.text     = element_text(size = 8),
-        panel.grid.minor= element_blank()
-      )
+    cat(sprintf("\n=== %s 부문 ===\n", seg_name))
+    print(wide)
     
-    idx <- idx + 1
+    wide_list[[seg_name]] <- wide
   }
-}
-
-g_trend <- gridExtra::grid.arrange(
-  grobs = trend_plots,
-  ncol  = 4,
-  top   = grid::textGrob(
-    "평행추세: 투자 횟수별 추이 (통제·1회·2회·3회)",
-    gp = grid::gpar(fontsize = 13, fontface = "bold", fontfamily = kfont)
+  
+  # ==============================================================================
+  # 6. 평행추세 검정 — 투자횟수별 × 부문별 (2018→2019 기울기 차이)
+  # ==============================================================================
+  
+  cat("\n", paste(rep("=", 80), collapse = ""), "\n")
+  cat("  평행추세 검정 (Pre-trend: 2018→2019 slope t-test)\n")
+  cat(paste(rep("=", 80), collapse = ""), "\n")
+  
+  pt_all <- list()
+  
+  for (s in c(1, 2, 3)) {
+    seg_name <- seg_labels[as.character(s)]
+    
+    # 통제집단 2018→2019 차분
+    ctrl_sub <- panel %>% filter(seg == s, n_funded == 0)
+    ctrl_d18 <- ctrl_sub %>% filter(year == 2018) %>%
+      select(firm_id, all_of(ana_vars$var))
+    ctrl_d19 <- ctrl_sub %>% filter(year == 2019) %>%
+      select(firm_id, all_of(ana_vars$var))
+    ctrl_diff <- left_join(ctrl_d18, ctrl_d19, by = "firm_id",
+                           suffix = c("_18", "_19"))
+    
+    for (n in n_funded_levels) {
+      n_label <- n_funded_labels[as.character(n)]
+      tr_sub  <- panel %>% filter(seg == s, n_funded == n)
+      
+      if (nrow(tr_sub %>% filter(year == 2019)) < 5) next
+      
+      # 처치집단도 동일하게 2018→2019 차분
+      tr_d18  <- tr_sub %>% filter(year == 2018) %>%
+        select(firm_id, all_of(ana_vars$var))
+      tr_d19  <- tr_sub %>% filter(year == 2019) %>%
+        select(firm_id, all_of(ana_vars$var))
+      tr_diff <- left_join(tr_d18, tr_d19, by = "firm_id",
+                           suffix = c("_18", "_19"))
+      
+      cat(sprintf("\n─── %s | %s ───\n", seg_name, n_label))
+      cat(sprintf("  %-16s %8s %8s  %s\n", "변수", "t값", "p값", "판정"))
+      cat("  ", paste(rep("-", 46), collapse = ""), "\n")
+      
+      for (v in 1:nrow(ana_vars)) {
+        vname <- ana_vars$var[v]
+        label <- ana_vars$label[v]
+        
+        # 기울기 = 2019 - 2018 (처치·통제 모두 동일 기준)
+        tr_slope <- tr_diff[[paste0(vname, "_19")]] -
+          tr_diff[[paste0(vname, "_18")]]
+        ct_slope <- ctrl_diff[[paste0(vname, "_19")]] -
+          ctrl_diff[[paste0(vname, "_18")]]
+        
+        tr_slope <- tr_slope[!is.na(tr_slope)]
+        ct_slope <- ct_slope[!is.na(ct_slope)]
+        
+        if (length(tr_slope) < 3 || length(ct_slope) < 3) {
+          pt_all[[paste(seg_name, n_label, label)]] <-
+            data.frame(부문=seg_name, 투자횟수=n_label, 변수=label,
+                       t값=NA_real_, p값=NA_real_, 판정="n/a",
+                       stringsAsFactors=FALSE)
+          next
+        }
+        
+        tt   <- t.test(tr_slope, ct_slope, var.equal = FALSE)
+        t_v  <- as.numeric(tt$statistic)
+        p_v  <- tt$p.value
+        judg <- ifelse(p_v > 0.1,  "✅ 충족",
+                       ifelse(p_v > 0.05, "⚠ 경계", "❌ 위반"))
+        
+        cat(sprintf("  %-16s %8.3f %8.4f  %s\n",
+                    label, safe_num(t_v), safe_num(p_v), judg))
+        
+        pt_all[[paste(seg_name, n_label, label)]] <-
+          data.frame(부문=seg_name, 투자횟수=n_label, n_funded=n,
+                     변수=label,
+                     t값=round(t_v, 4), p값=round(p_v, 4),
+                     판정=judg, stringsAsFactors=FALSE)
+      }
+    }
+  }
+  
+  pt_result <- bind_rows(pt_all) %>% as.data.frame()
+  
+  cat("\n=== 평행추세 결과 요약 ===\n")
+  print(pt_result)
+  
+  # ==============================================================================
+  # 7. 시각화
+  # ==============================================================================
+  
+  if (Sys.info()["sysname"] == "Darwin") {
+    kfont <- "AppleGothic"
+  } else if (Sys.info()["sysname"] == "Windows") {
+    kfont <- "Malgun Gothic"
+  } else {
+    kfont <- "NanumGothic"
+  }
+  
+  # 색상 팔레트
+  col_ctrl    <- "#4A90D9"   # 통제
+  col_1time   <- "#91C46C"   # 1회
+  col_2times  <- "#F5A623"   # 2회
+  col_3times  <- "#E05555"   # 3회
+  
+  nf_colors <- c("통제" = col_ctrl,
+                 "1회"  = col_1time,
+                 "2회"  = col_2times,
+                 "3회"  = col_3times)
+  
+  # ── (A) DID 계수 dot-plot: 부문 × 투자횟수 × 변수 ──────────────────────────
+  plot_did <- did_result %>%
+    mutate(
+      변수     = factor(변수, levels = rev(ana_vars$label)),
+      투자횟수 = factor(투자횟수, levels = c("1회", "2회", "3회")),
+      부문     = factor(부문, levels = c("소재", "부품", "장비")),
+      유의     = ifelse(p_value < 0.05, "유의(p<0.05)", "비유의")
+    )
+  
+  p_dot <- ggplot(plot_did,
+                  aes(x = DID, y = 변수, color = 투자횟수, shape = 유의)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+    geom_point(size = 3.2, position = position_dodge(width = 0.7)) +
+    scale_color_manual(values = c("1회" = col_1time,
+                                  "2회" = col_2times,
+                                  "3회" = col_3times)) +
+    scale_shape_manual(values = c("유의(p<0.05)" = 16, "비유의" = 1)) +
+    facet_wrap(~ 부문, ncol = 3, scales = "free_x") +
+    labs(
+      title    = "투자 횟수별 Simple DID 추정량",
+      subtitle = sprintf("Pre=2019, Post=%d | 부문 × 투자횟수 × 변수", POST_YEAR),
+      x = "DID 계수", y = NULL, color = "투자횟수", shape = "유의성"
+    ) +
+    theme_minimal(base_family = kfont) +
+    theme(
+      plot.title      = element_text(face = "bold", size = 14),
+      strip.text      = element_text(face = "bold", size = 12),
+      legend.position = "top",
+      axis.text.y     = element_text(size = 9)
+    )
+  
+  ggsave(sprintf("DID_Nfunded_dotplot_%d.png", POST_YEAR),
+         p_dot, width = 15, height = 9, dpi = 300)
+  cat(sprintf("\n✓ DID_Nfunded_dotplot_%d.png 저장\n", POST_YEAR))
+  
+  # ── (B) 카테고리별 Facet bar: 부문 × 투자횟수 ───────────────────────────────
+  p_bar <- ggplot(plot_did,
+                  aes(x = 변수, y = DID, fill = 투자횟수, alpha = 유의)) +
+    geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray30") +
+    scale_fill_manual(values = c("1회" = col_1time,
+                                 "2회" = col_2times,
+                                 "3회" = col_3times)) +
+    scale_alpha_manual(values = c("유의(p<0.05)" = 1.0, "비유의" = 0.45),
+                       guide  = "none") +
+    facet_grid(부문 ~ 카테고리, scales = "free_x") +
+    labs(
+      title    = "투자 횟수별 DID 추정량 — 카테고리 × 부문",
+      subtitle = "진한 색 = 유의(p<0.05), 연한 색 = 비유의",
+      x = NULL, y = "DID 계수", fill = "투자횟수"
+    ) +
+    theme_minimal(base_family = kfont) +
+    theme(
+      plot.title      = element_text(face = "bold", size = 13),
+      strip.text      = element_text(face = "bold", size = 10),
+      axis.text.x     = element_text(angle = 40, hjust = 1, size = 8),
+      legend.position = "top"
+    )
+  
+  #ggsave("DID_Nfunded_barplot.png", p_bar, width = 16, height = 12, dpi = 300)
+  ggsave(sprintf("DID_Nfunded_barplot_%d.png", POST_YEAR),
+         p_bar, width = 16, height = 12, dpi = 300)
+  cat("✓ DID_Nfunded_barplot.png 저장\n")
+  
+  # ── (C) 평행추세 추이 — 부문별, 대표 변수(자산) × 투자횟수 ──────────────────
+  # 연도별 평균 (n_funded 그룹별)
+  trend_nf <- panel %>%
+    filter(year %in% 2019:POST_YEAR) %>%
+    mutate(
+      그룹 = case_when(
+        n_funded == 0 ~ "통제",
+        n_funded == 1 ~ "1회",
+        n_funded == 2 ~ "2회",
+        n_funded == 3 ~ "3회"
+      ),
+      그룹 = factor(그룹, levels = c("통제", "1회", "2회", "3회"))
+    )
+  
+  # 대표 변수 4개 × 부문 3개 그리드
+  key_vars   <- c("log_asset", "log_sales", "log_patent", "log_rdcost")
+  key_labels <- c("ln자산", "ln매출", "ln(특허+1)", "ln(개발비+1)")
+  
+  trend_plots <- list()
+  idx <- 1
+  
+  for (s in c(1, 2, 3)) {
+    seg_name <- seg_labels[as.character(s)]
+    sub_nf   <- trend_nf %>% filter(seg == s)
+    
+    for (vi in seq_along(key_vars)) {
+      varname <- key_vars[vi]
+      label   <- key_labels[vi]
+      
+      se_df <- sub_nf %>%
+        filter(!is.na(.data[[varname]])) %>%
+        group_by(year, 그룹) %>%
+        summarise(
+          m  = mean(.data[[varname]], na.rm = TRUE),
+          se = sd(.data[[varname]],   na.rm = TRUE) / sqrt(n()),
+          .groups = "drop"
+        )
+      
+      trend_plots[[idx]] <- ggplot(se_df, aes(x = year, y = m,
+                                              color = 그룹, fill = 그룹)) +
+        geom_ribbon(aes(ymin = m - 1.96*se, ymax = m + 1.96*se),
+                    alpha = 0.10, color = NA) +
+        geom_line(linewidth = 1.0) +
+        geom_point(size = 1.8) +
+        annotate("rect", xmin = 2019.5, xmax = 2022.5,
+                 ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "gold") +
+        geom_vline(xintercept = 2019.5, linetype = "dashed",
+                   color = "gray50", linewidth = 0.5) +
+        scale_color_manual(values = nf_colors) +
+        scale_fill_manual( values = nf_colors) +
+        scale_x_continuous(breaks = 2019:POST_YEAR) +
+        labs(title = paste0(seg_name, " | ", label),
+             x = NULL, y = NULL, color = NULL, fill = NULL) +
+        theme_minimal(base_family = kfont) +
+        theme(
+          plot.title      = element_text(face = "bold", size = 9),
+          axis.text.x     = element_text(size = 7, angle = 30, hjust = 1),
+          axis.text.y     = element_text(size = 7),
+          legend.position = if (idx == 1) "top" else "none",
+          legend.text     = element_text(size = 8),
+          panel.grid.minor= element_blank()
+        )
+      
+      idx <- idx + 1
+    }
+  }
+  
+  g_trend <- gridExtra::grid.arrange(
+    grobs = trend_plots,
+    ncol  = 4,
+    top   = grid::textGrob(
+      "평행추세: 투자 횟수별 추이 (통제·1회·2회·3회)",
+      gp = grid::gpar(fontsize = 13, fontface = "bold", fontfamily = kfont)
+    )
   )
-)
+  
+  #ggsave("ParallelTrends_Nfunded.png", g_trend,width = 18, height = 12, dpi = 300)
+  ggsave(sprintf("ParallelTrends_Nfunded_%d.png", POST_YEAR),
+         g_trend, width = 18, height = 12, dpi = 300)
+  cat("✓ ParallelTrends_Nfunded.png 저장\n")
+  
+  # ── (D) 평행추세 히트맵 — 부문 × 투자횟수 × 변수 ────────────────────────────
+  pt_heat <- pt_result %>%
+    filter(!is.na(p값)) %>%
+    mutate(
+      판정색   = case_when(
+        p값 > 0.1  ~ "충족",
+        p값 > 0.05 ~ "경계",
+        TRUE       ~ "위반"
+      ),
+      부문     = factor(부문,     levels = c("소재", "부품", "장비")),
+      투자횟수 = factor(투자횟수, levels = c("1회", "2회", "3회")),
+      변수     = factor(변수,     levels = rev(ana_vars$label)),
+      x_label  = paste0(부문, "\n", 투자횟수)
+    )
+  
+  p_heat <- ggplot(pt_heat,
+                   aes(x = interaction(투자횟수, 부문, sep = "\n"),
+                       y = 변수, fill = 판정색)) +
+    geom_tile(color = "white", linewidth = 0.7) +
+    geom_text(aes(label = sprintf("%.3f", p값)),
+              size = 2.8, color = "gray20") +
+    scale_fill_manual(
+      values = c("충족" = "#A8D5A2", "경계" = "#FFE08A", "위반" = "#F4A6A0"),
+      name   = "평행추세 판정"
+    ) +
+    labs(
+      title    = "평행추세 검정 히트맵 — 투자 횟수별 × 부문별",
+      subtitle = "초록=충족(p>0.1)  노랑=경계(p<0.1)  빨강=위반(p<0.05)",
+      x = "부문 × 투자횟수", y = NULL
+    ) +
+    theme_minimal(base_family = kfont) +
+    theme(
+      plot.title    = element_text(face = "bold", size = 13),
+      plot.subtitle = element_text(size = 9, color = "gray40"),
+      axis.text.x   = element_text(size = 9),
+      axis.text.y   = element_text(size = 9),
+      legend.position = "top"
+    )
 
-ggsave("ParallelTrends_Nfunded.png", g_trend,
-       width = 18, height = 12, dpi = 300)
-cat("✓ ParallelTrends_Nfunded.png 저장\n")
+  #ggsave("ParallelTrends_Nfunded_Heatmap.png", p_heat,width = 12, height = 8, dpi = 300)
+  ggsave(sprintf("ParallelTrends_Nfunded_Heatmap_%d.png", POST_YEAR),
+         p_heat, width = 12, height = 8, dpi = 300)
+  cat("✓ ParallelTrends_Nfunded_Heatmap.png 저장\n")
+  
+  # ★ 라인 986 (기존 cat 출력) 바로 다음에 추가
+  all_results[[as.character(POST_YEAR)]] <- list(
+    did_result   = did_result,
+    dummy_result = dummy_result,
+    dr_result    = dr_result,
+    pt_result    = pt_result,
+    wide_list    = wide_list)
 
-# ── (D) 평행추세 히트맵 — 부문 × 투자횟수 × 변수 ────────────────────────────
-pt_heat <- pt_result %>%
-  filter(!is.na(p값)) %>%
-  mutate(
-    판정색   = case_when(
-      p값 > 0.1  ~ "충족",
-      p값 > 0.05 ~ "경계",
-      TRUE       ~ "위반"
-    ),
-    부문     = factor(부문,     levels = c("소재", "부품", "장비")),
-    투자횟수 = factor(투자횟수, levels = c("1회", "2회", "3회")),
-    변수     = factor(변수,     levels = rev(ana_vars$label)),
-    x_label  = paste0(부문, "\n", 투자횟수)
-  )
-
-p_heat <- ggplot(pt_heat,
-                 aes(x = interaction(투자횟수, 부문, sep = "\n"),
-                     y = 변수, fill = 판정색)) +
-  geom_tile(color = "white", linewidth = 0.7) +
-  geom_text(aes(label = sprintf("%.3f", p값)),
-            size = 2.8, color = "gray20") +
-  scale_fill_manual(
-    values = c("충족" = "#A8D5A2", "경계" = "#FFE08A", "위반" = "#F4A6A0"),
-    name   = "평행추세 판정"
-  ) +
-  labs(
-    title    = "평행추세 검정 히트맵 — 투자 횟수별 × 부문별",
-    subtitle = "초록=충족(p>0.1)  노랑=경계(p<0.1)  빨강=위반(p<0.05)",
-    x = "부문 × 투자횟수", y = NULL
-  ) +
-  theme_minimal(base_family = kfont) +
-  theme(
-    plot.title    = element_text(face = "bold", size = 13),
-    plot.subtitle = element_text(size = 9, color = "gray40"),
-    axis.text.x   = element_text(size = 9),
-    axis.text.y   = element_text(size = 9),
-    legend.position = "top"
-  )
-
-ggsave("ParallelTrends_Nfunded_Heatmap.png", p_heat,
-       width = 12, height = 8, dpi = 300)
-cat("✓ ParallelTrends_Nfunded_Heatmap.png 저장\n")
+}  # ← for (POST_YEAR in POST_YEARS) 루프 닫기
 
 # ==============================================================================
 # 8. Excel 저장
 # ==============================================================================
 
-# Wide 시트 3개 (부문별)
-excel_sheets <- list(
-  DID_결과_전체    = did_result,
-  더미모형_0회기준 = dummy_result,   # [4-B] 추가
-  "DID_Doubly_Robust" = dr_result,      # [4-C] 추가
-  평행추세_결과    = pt_result,
-  Wide_소재        = wide_list[["소재"]],
-  Wide_부품        = wide_list[["부품"]],
-  Wide_장비        = wide_list[["장비"]]
-)
+excel_sheets <- list()
+
+for (yr_key in names(all_results)) {
+  res <- all_results[[yr_key]]
+  sfx <- paste0("_", yr_key)          # "_2024" 또는 "_2025"
+  
+  excel_sheets[[paste0("DID_결과_전체",    sfx)]] <- res$did_result
+  excel_sheets[[paste0("더미모형_0회기준", sfx)]] <- res$dummy_result
+  excel_sheets[[paste0("DID_DR",          sfx)]] <- res$dr_result
+  excel_sheets[[paste0("평행추세",         sfx)]] <- res$pt_result
+  excel_sheets[[paste0("Wide_소재",        sfx)]] <- res$wide_list[["소재"]]
+  excel_sheets[[paste0("Wide_부품",        sfx)]] <- res$wide_list[["부품"]]
+  excel_sheets[[paste0("Wide_장비",        sfx)]] <- res$wide_list[["장비"]]
+}
+
+# # Wide 시트 3개 (부문별)
+# excel_sheets <- list(
+#   DID_결과_전체    = did_result,
+#   더미모형_0회기준 = dummy_result,   # [4-B] 추가
+#   "DID_Doubly_Robust" = dr_result,      # [4-C] 추가
+#   평행추세_결과    = pt_result,
+#   Wide_소재        = wide_list[["소재"]],
+#   Wide_부품        = wide_list[["부품"]],
+#   Wide_장비        = wide_list[["장비"]]
+# )
 
 write_xlsx(excel_sheets, "DID_Nfunded_Seg.xlsx")
 
 cat("\n✓ 저장 완료: DID_Nfunded_Seg.xlsx\n")
-cat("  시트: DID_결과_전체 / 더미모형_0회기준 / 평행추세_결과\n")
-cat("        Wide_소재 / Wide_부품 / Wide_장비\n")
-cat("\n=== 분석 완료 ===\n")
+cat("  시트 수:", length(excel_sheets), "(연도별 7시트 × 2년 = 14시트)\n")
