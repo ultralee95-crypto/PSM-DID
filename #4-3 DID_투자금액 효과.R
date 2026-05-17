@@ -7,10 +7,9 @@
 #   3. 평행추세 검정 (pre-treatment trend)
 #   4. 연속변수 dose-response 모형
 #   5. Wide format 요약표 + Excel 저장
-#   6. (보너스) 투자 횟수(n_funded) 기준 DID 재현
 #
 # 데이터: matched_dataset_segPSM.xlsx (PSM 매칭 완료 데이터)
-# pre = 2019, post = 2024, treatment period = 2020~2022
+# pre = 2019, post = 2024, 2025, treatment period = 2020~2022
 #
 # ★ 주의: Excel 파일의 수치 컬럼이 text로 저장되어 있으므로 로드 후 변환 필수
 # ★ 주의: data.frame 내부 컬럼명은 영문 사용 (한글 인코딩 이슈 방지)
@@ -31,6 +30,8 @@
 # 20260503
 # 결과 변수에서 자본금 삭제. OPM 로그변환 하지 않음(opm). 노무비 삭제하고 인건비로 통합(lbcost) 
 # Doubly Robust DID 추가 (자기자신 사전값 제외, 나머지 7개 통제)
+# 2025년도 데이터 추가
+# 20250517 : DOSE_RESPONSE - ln(금액)² 항 추가하여 역U형 관계 탐색 가능하도록 개선. 최적 투자금액 계산 추가.
 ################################################################################
 
 packages <- c("readxl", "dplyr", "tidyr", "ggplot2",
@@ -64,13 +65,13 @@ numeric_cols <- c(
   "fundedpattern", "funded", "seg", "treat",
   grep("S15000|S18000|S18100|S21100|S25000|S05000|S21190|S21195|692080|692081|692082|692083|692084|692085|692086|692087|692088|124100|152000",
        names(raw), value = TRUE),
-  paste0("exportamt", 2018:2024),
-  paste0("rdcost", 2018:2024),
-  paste0("lbcost", 2018:2024),
-  paste0("mflbcost", 2018:2024),
-  paste0("opm", 2018:2024),
-  paste0("p", 2019:2024),
-  paste0("export", 2018:2024),
+  paste0("exportamt", 2018:2025),
+  paste0("rdcost", 2018:2025),
+  paste0("lbcost", 2018:2025),
+  paste0("mflbcost", 2018:2025),
+  paste0("opm", 2018:2025),
+  paste0("p", 2019:2025),
+  paste0("export", 2018:2025),
   "age", "subclass", "weights", "distance",
   grep("^log_|^labor_prod", names(raw), value = TRUE)
 )
@@ -88,18 +89,20 @@ raw$n_funded       <- raw$fund2020 + raw$fund2021 + raw$fund2022
 # -- 2. 변수 매핑 (list of lists) ---------------------------------------------
 # [20260503]
 # ==============================================================================
-var_info <- list(
-  list(vn="ln_asset",  kr="ln자산",       cat="성장성", pre="2019/Annual S15000.자산총계",        post="2024/Annual S15000.자산총계",        pt_pre="2018/Annual S15000.자산총계",        pt_post="2019/Annual S15000.자산총계"),
-  list(vn="ln_rev",    kr="ln매출",       cat="성장성", pre="2019/Annual S21100.총수익",          post="2024/Annual S21100.총수익",          pt_pre="2018/Annual S21100.총수익",          pt_post="2019/Annual S21100.총수익"),
-  list(vn="ln_debt",   kr="ln부채",       cat="안정성", pre="2019/Annual S18000.부채총계",        post="2024/Annual S18000.부채총계",        pt_pre="2018/Annual S18000.부채총계",        pt_post="2019/Annual S18000.부채총계"),
-  #list(vn="ln_cap",    kr="ln자본금",     cat="성장성", pre="2019/Annual S18100.자본금",          post="2024/Annual S18100.자본금",          pt_pre="2018/Annual S18100.자본금",          pt_post="2019/Annual S18100.자본금"),
-  list(vn="opm",       kr="OPM",          cat="수익성", pre="opm2019",        post="opm2024",         pt_pre="opm2018",         pt_post="opm2019"),
-  list(vn="ln_pat1",   kr="ln(특허+1)",   cat="혁신성", pre="p2019",           post="p2024",           pt_pre="p2019",           pt_post="p2020"),
-  list(vn="ln_exp1",   kr="ln(수출+1)",   cat="활동성", pre="exportamt2019",   post="exportamt2024",   pt_pre="exportamt2018",   pt_post="exportamt2019"),
-  list(vn="ln_rd1",    kr="ln(개발비+1)", cat="혁신성", pre="rdcost2019",      post="rdcost2024",      pt_pre="rdcost2018",      pt_post="rdcost2019"),
-  list(vn="ln_lb1",    kr="ln(인건비+1)", cat="활동성", pre="lbcost2019",      post="lbcost2024",      pt_pre="lbcost2018",      pt_post="lbcost2019")
-  #list(vn="ln_mflb1",  kr="ln(노무비+1)", cat="활동성", pre="mflbcost2019",    post="mflbcost2024",    pt_pre="mflbcost2018",    pt_post="mflbcost2019")
-)
+make_var_info <- function(post_yr)  {
+  list(
+    list(vn="ln_asset",  kr="ln자산",       cat="성장성", pre="2019/Annual S15000.자산총계",        post=paste0(post_yr,"/Annual S15000.자산총계"),        pt_pre="2018/Annual S15000.자산총계",        pt_post="2019/Annual S15000.자산총계"),
+    list(vn="ln_rev",    kr="ln매출",       cat="성장성", pre="2019/Annual S21100.총수익",          post=paste0(post_yr,"/Annual S21100.총수익"),          pt_pre="2018/Annual S21100.총수익",          pt_post="2019/Annual S21100.총수익"),
+    list(vn="ln_debt",   kr="ln부채",       cat="안정성", pre="2019/Annual S18000.부채총계",        post=paste0(post_yr,"/Annual S18000.부채총계"),        pt_pre="2018/Annual S18000.부채총계",        pt_post="2019/Annual S18000.부채총계"),
+    #list(vn="ln_cap",    kr="ln자본금",     cat="성장성", pre="2019/Annual S18100.자본금",          post="2024/Annual S18100.자본금",          pt_pre="2018/Annual S18100.자본금",          pt_post="2019/Annual S18100.자본금"),
+    list(vn="opm",       kr="OPM",          cat="수익성", pre="opm2019",         post=paste0("opm", post_yr),         pt_pre="opm2018",         pt_post="opm2019"),
+    list(vn="ln_pat1",   kr="ln(특허+1)",   cat="혁신성", pre="p2019",           post=paste0("p", post_yr),           pt_pre="p2019",           pt_post="p2020"),
+    list(vn="ln_exp1",   kr="ln(수출+1)",   cat="활동성", pre="exportamt2019",   post=paste0("exportamt", post_yr),   pt_pre="exportamt2018",   pt_post="exportamt2019"),
+    list(vn="ln_rd1",    kr="ln(개발비+1)", cat="혁신성", pre="rdcost2019",      post=paste0("rdcost", post_yr),       pt_pre="rdcost2018",      pt_post="rdcost2019"),
+    list(vn="ln_lb1",    kr="ln(인건비+1)", cat="활동성", pre="lbcost2019",      post=paste0("lbcost", post_yr),      pt_pre="lbcost2018",      pt_post="lbcost2019")
+    #list(vn="ln_mflb1",  kr="ln(노무비+1)", cat="활동성", pre="mflbcost2019",   post="mflbcost2024",    pt_pre="mflbcost2018",    pt_post="mflbcost2019")
+  )
+}
 
 # ==============================================================================
 # -- 3. 유틸리티 함수 ---------------------------------------------------------
@@ -176,421 +179,165 @@ segments   <- c("소재", "부품", "장비")
 grp_labels <- c("low", "mid", "high")
 grp_kr     <- c(low="하위", mid="중위", high="상위")
 
-res_did <- list(); res_dummy <- list(); res_pt <- list(); res_cont <- list()
-res_dr  <- list()   # [20260503] DR-DID 결과 누적 (금액 분석)
+POST_YEARS  <- c(2024, 2025)
+all_results <- list()
 
-cat("\n====== Analysis Start ======\n")
+for (POST_YEAR in POST_YEARS) {
+  
+  cat("\n", strrep("=", 70), "\n")
+  cat(sprintf("  ★ POST YEAR = %d  (Pre=2019)\n", POST_YEAR))
+  cat(strrep("=", 70), "\n")
+  
+  # ★ var_info 를 POST_YEAR 에 맞게 동적 생성
+  var_info <- make_var_info(POST_YEAR)
+  
+  # ★ 결과 컨테이너 초기화 (루프마다 새로 시작)
+  res_did <- list(); res_dummy <- list()
+  res_pt  <- list(); res_cont  <- list()
+  res_dr  <- list()
 
-for (seg in segments) {
-  cat(sprintf("\n-- Segment: %s --\n", seg))
-  seg_data <- assign_amt_group(raw[raw$seg_name == seg, ])
-  ctrl <- seg_data[seg_data$amt_group == "ctrl", ]
-  
-  # [20260503] 부문 단위 사전값 행렬 (DR-DID 공변량용)
-  pre_mat_seg <- make_pre_matrix(seg_data)
-  
-  for (vi in var_info) {
-    vn <- vi$vn; kr <- vi$kr; cat_ <- vi$cat
+  cat("\n====== Analysis Start ======\n")
+
+  for (seg in segments) {
+    cat(sprintf("\n-- Segment: %s --\n", seg))
+    seg_data <- assign_amt_group(raw[raw$seg_name == seg, ])
+    ctrl <- seg_data[seg_data$amt_group == "ctrl", ]
     
-    # --- 5-1. Simple DID (per tercile) ----------------------------------------------
-    cp <- ln_transform(ctrl[[ vi$pre  ]], vn)
-    cq <- ln_transform(ctrl[[ vi$post ]], vn)
-    cm <- !is.na(cp) & !is.na(cq); cd <- cq[cm] - cp[cm]
+    # [20260503] 부문 단위 사전값 행렬 (DR-DID 공변량용)
+    pre_mat_seg <- make_pre_matrix(seg_data)
     
-    g_diffs <- list(); g_dids <- list(); g_ns <- list(); g_ps <- list()
-    
-    for (g in grp_labels) {
-      gd <- seg_data[seg_data$amt_group == g, ]
-      tp <- ln_transform(gd[[ vi$pre  ]], vn)
-      tq <- ln_transform(gd[[ vi$post ]], vn)
-      tm <- !is.na(tp) & !is.na(tq); td <- tq[tm] - tp[tm]
-      g_diffs[[g]] <- td; g_ns[[g]] <- sum(tm)
+    for (vi in var_info) {
+      vn <- vi$vn; kr <- vi$kr; cat_ <- vi$cat
       
-      if (sum(tm) >= 5 & sum(cm) >= 5) {
-        dv <- mean(td) - mean(cd); tt <- t.test(td, cd, var.equal=FALSE)
-        g_dids[[g]] <- dv; g_ps[[g]] <- tt$p.value
-        res_did[[ length(res_did)+1 ]] <- list(
-          seg=seg, grp=g, grp_kr=grp_kr[g], cat=cat_, var=kr,
-          n_trt=sum(tm), n_ctrl=sum(cm),
-          trt_pre=mean(tp[tm]), trt_post=mean(tq[tm]),
-          ctrl_pre=mean(cp[cm]), ctrl_post=mean(cq[cm]),
-          did=dv, t_val=tt$statistic[[1]], p_val=tt$p.value,
-          sig=sig_label(tt$p.value))
-      } else {
-        g_dids[[g]] <- NA; g_ps[[g]] <- NA
-        res_did[[ length(res_did)+1 ]] <- list(
-          seg=seg, grp=g, grp_kr=grp_kr[g], cat=cat_, var=kr,
-          n_trt=sum(tm), n_ctrl=sum(cm),
-          trt_pre=NA, trt_post=NA, ctrl_pre=NA, ctrl_post=NA,
-          did=NA, t_val=NA, p_val=NA, sig="")
+      # --- 5-1. Simple DID (per tercile) ----------------------------------------------
+      cp <- ln_transform(ctrl[[ vi$pre  ]], vn)
+      cq <- ln_transform(ctrl[[ vi$post ]], vn)
+      cm <- !is.na(cp) & !is.na(cq); cd <- cq[cm] - cp[cm]
+      
+      g_diffs <- list(); g_dids <- list(); g_ns <- list(); g_ps <- list()
+      
+      for (g in grp_labels) {
+        gd <- seg_data[seg_data$amt_group == g, ]
+        tp <- ln_transform(gd[[ vi$pre  ]], vn)
+        tq <- ln_transform(gd[[ vi$post ]], vn)
+        tm <- !is.na(tp) & !is.na(tq); td <- tq[tm] - tp[tm]
+        g_diffs[[g]] <- td; g_ns[[g]] <- sum(tm)
+        
+        if (sum(tm) >= 5 & sum(cm) >= 5) {
+          dv <- mean(td) - mean(cd); tt <- t.test(td, cd, var.equal=FALSE)
+          g_dids[[g]] <- dv; g_ps[[g]] <- tt$p.value
+          res_did[[ length(res_did)+1 ]] <- list(
+            seg=seg, grp=g, grp_kr=grp_kr[g], cat=cat_, var=kr,
+            n_trt=sum(tm), n_ctrl=sum(cm),
+            trt_pre=mean(tp[tm]), trt_post=mean(tq[tm]),
+            ctrl_pre=mean(cp[cm]), ctrl_post=mean(cq[cm]),
+            did=dv, t_val=tt$statistic[[1]], p_val=tt$p.value,
+            sig=sig_label(tt$p.value))
+        } else {
+          g_dids[[g]] <- NA; g_ps[[g]] <- NA
+          res_did[[ length(res_did)+1 ]] <- list(
+            seg=seg, grp=g, grp_kr=grp_kr[g], cat=cat_, var=kr,
+            n_trt=sum(tm), n_ctrl=sum(cm),
+            trt_pre=NA, trt_post=NA, ctrl_pre=NA, ctrl_post=NA,
+            did=NA, t_val=NA, p_val=NA, sig="")
+        }
       }
-    }
-    # ==============================================================================
-    # --- 5-2. Dummy model: ANOVA + pairwise ----------------------------------
-    # ==============================================================================
-    
-    al <- c(list(cd), g_diffs[sapply(g_diffs, function(x) length(x)>=3)])
-    if (length(al)>=2) {
-      adf <- data.frame(diff=unlist(al), group=factor(rep(seq_along(al), sapply(al, length))))
-      f_p <- summary(aov(diff~group, data=adf))[[1]]$`Pr(>F)`[1]
-    } else { f_p <- NA }
-    
-    res_dummy[[ length(res_dummy)+1 ]] <- list(
-      seg=seg, cat=cat_, var=kr,
-      n_ctrl=sum(cm), n_low=g_ns[["low"]], n_mid=g_ns[["mid"]], n_high=g_ns[["high"]],
-      ctrl_mean_diff=mean(cd),
-      did_low=g_dids[["low"]], did_mid=g_dids[["mid"]], did_high=g_dids[["high"]],
-      p_low=g_ps[["low"]], p_mid=g_ps[["mid"]], p_high=g_ps[["high"]],
-      sig_low=sig_label(g_ps[["low"]]), sig_mid=sig_label(g_ps[["mid"]]),
-      sig_high=sig_label(g_ps[["high"]]),
-      p_F=f_p, sig_F=sig_label(f_p),
-      p_hv_l=pw_test(g_diffs[["high"]], g_diffs[["low"]]),
-      p_hv_m=pw_test(g_diffs[["high"]], g_diffs[["mid"]]),
-      p_mv_l=pw_test(g_diffs[["mid"]],  g_diffs[["low"]]))
-
-    # ==============================================================================
-    # --- 5-3. Parallel trends ------------------------------------------------
-    # ==============================================================================
-    
-    cp2 <- ln_transform(ctrl[[ vi$pt_pre  ]], vn)
-    cq2 <- ln_transform(ctrl[[ vi$pt_post ]], vn)
-    cm2 <- !is.na(cp2) & !is.na(cq2); cd2 <- cq2[cm2] - cp2[cm2]
-    
-    for (g in grp_labels) {
-      gd <- seg_data[seg_data$amt_group == g, ]
-      tp2 <- ln_transform(gd[[ vi$pt_pre  ]], vn)
-      tq2 <- ln_transform(gd[[ vi$pt_post ]], vn)
-      tm2 <- !is.na(tp2) & !is.na(tq2); td2 <- tq2[tm2] - tp2[tm2]
-      if (sum(tm2)>=3 & sum(cm2)>=3) {
-        ptt <- t.test(td2, cd2, var.equal=FALSE)
-        res_pt[[ length(res_pt)+1 ]] <- list(
-          seg=seg, grp=g, grp_kr=grp_kr[g], var=kr,
-          t_val=round(ptt$statistic[[1]],4), p_val=round(ptt$p.value,4),
-          judge=pt_judge(ptt$p.value))
-      } else {
-        res_pt[[ length(res_pt)+1 ]] <- list(
-          seg=seg, grp=g, grp_kr=grp_kr[g], var=kr,
-          t_val=NA, p_val=NA, judge="N/A")
+      # ==============================================================================
+      # --- 5-2. Dummy model: ANOVA + pairwise ----------------------------------
+      # ==============================================================================
+      
+      al <- c(list(cd), g_diffs[sapply(g_diffs, function(x) length(x)>=3)])
+      if (length(al)>=2) {
+        adf <- data.frame(diff=unlist(al), group=factor(rep(seq_along(al), sapply(al, length))))
+        f_p <- summary(aov(diff~group, data=adf))[[1]]$`Pr(>F)`[1]
+      } else { f_p <- NA }
+      
+      res_dummy[[ length(res_dummy)+1 ]] <- list(
+        seg=seg, cat=cat_, var=kr,
+        n_ctrl=sum(cm), n_low=g_ns[["low"]], n_mid=g_ns[["mid"]], n_high=g_ns[["high"]],
+        ctrl_mean_diff=mean(cd),
+        did_low=g_dids[["low"]], did_mid=g_dids[["mid"]], did_high=g_dids[["high"]],
+        p_low=g_ps[["low"]], p_mid=g_ps[["mid"]], p_high=g_ps[["high"]],
+        sig_low=sig_label(g_ps[["low"]]), sig_mid=sig_label(g_ps[["mid"]]),
+        sig_high=sig_label(g_ps[["high"]]),
+        p_F=f_p, sig_F=sig_label(f_p),
+        p_hv_l=pw_test(g_diffs[["high"]], g_diffs[["low"]]),
+        p_hv_m=pw_test(g_diffs[["high"]], g_diffs[["mid"]]),
+        p_mv_l=pw_test(g_diffs[["mid"]],  g_diffs[["low"]]))
+  
+      # ==============================================================================
+      # --- 5-3. Parallel trends ------------------------------------------------
+      # ==============================================================================
+      
+      cp2 <- ln_transform(ctrl[[ vi$pt_pre  ]], vn)
+      cq2 <- ln_transform(ctrl[[ vi$pt_post ]], vn)
+      cm2 <- !is.na(cp2) & !is.na(cq2); cd2 <- cq2[cm2] - cp2[cm2]
+      
+      for (g in grp_labels) {
+        gd <- seg_data[seg_data$amt_group == g, ]
+        tp2 <- ln_transform(gd[[ vi$pt_pre  ]], vn)
+        tq2 <- ln_transform(gd[[ vi$pt_post ]], vn)
+        tm2 <- !is.na(tp2) & !is.na(tq2); td2 <- tq2[tm2] - tp2[tm2]
+        if (sum(tm2)>=3 & sum(cm2)>=3) {
+          ptt <- t.test(td2, cd2, var.equal=FALSE)
+          res_pt[[ length(res_pt)+1 ]] <- list(
+            seg=seg, grp=g, grp_kr=grp_kr[g], var=kr,
+            t_val=round(ptt$statistic[[1]],4), p_val=round(ptt$p.value,4),
+            judge=pt_judge(ptt$p.value))
+        } else {
+          res_pt[[ length(res_pt)+1 ]] <- list(
+            seg=seg, grp=g, grp_kr=grp_kr[g], var=kr,
+            t_val=NA, p_val=NA, judge="N/A")
+        }
       }
-    }
-  
-  # ==============================================================================
-  # --- 5-4. [20260503] Doubly Robust DID -----------------------------------
-  #  for each amount group g: lm(diff_y ~ treat_dummy + 7개 사전공변량)
-  #  공변량 = pre_mat_seg에서 자기자신의 _pre 컬럼 제외한 나머지 7개
-  # ==============================================================================
-  pre_v_full  <- ln_transform(seg_data[[ vi$pre  ]], vn)
-  post_v_full <- ln_transform(seg_data[[ vi$post ]], vn)
-  
-  cov_pre_cols <- setdiff(colnames(pre_mat_seg), paste0(vn, "_pre"))
-  
-  for (g in grp_labels) {
-    sel <- seg_data$amt_group %in% c(g, "ctrl")
     
-    df_dr <- data.frame(
-      diff_y      = post_v_full[sel] - pre_v_full[sel],
-      treat_dummy = as.integer(seg_data$amt_group[sel] == g),
-      pre_mat_seg[sel, cov_pre_cols, drop=FALSE]
-    )
-    df_dr <- df_dr[complete.cases(df_dr), ]
-    
-    n_t <- sum(df_dr$treat_dummy == 1)
-    n_c <- sum(df_dr$treat_dummy == 0)
-    
-    if (n_t < 5 || n_c < 5 || nrow(df_dr) < length(cov_pre_cols) + 5) {
-      res_dr[[ length(res_dr)+1 ]] <- list(
-        seg=seg, grp=g, grp_kr=grp_kr[g], cat=cat_, var=kr,
-        n_trt=n_t, n_ctrl=n_c,
-        DID_simple=NA, p_simple=NA, sig_simple="",
-        DID_DR=NA, SE_DR=NA, t_DR=NA, p_DR=NA, sig_DR="")
-      next
-    }
-    
-    # (A) Simple DID (lm version, 비교용)
-    reg_s <- tryCatch(lm(diff_y ~ treat_dummy, data=df_dr),
-                      error=function(e) NULL)
-    did_s <- if (!is.null(reg_s)) coef(reg_s)["treat_dummy"] else NA
-    p_s   <- if (!is.null(reg_s))
-      summary(reg_s)$coefficients["treat_dummy","Pr(>|t|)"] else NA
-    
-    # (B) Doubly Robust: 자기자신 _pre 제외한 나머지 7개 _pre 통제
-    fmla <- as.formula(paste("diff_y ~ treat_dummy +",
-                             paste(cov_pre_cols, collapse=" + ")))
-    reg_dr <- tryCatch(lm(fmla, data=df_dr), error=function(e) NULL)
-    
-    if (is.null(reg_dr) || !("treat_dummy" %in% rownames(summary(reg_dr)$coefficients))) {
-      res_dr[[ length(res_dr)+1 ]] <- list(
-        seg=seg, grp=g, grp_kr=grp_kr[g], cat=cat_, var=kr,
-        n_trt=n_t, n_ctrl=n_c,
-        DID_simple=did_s, p_simple=p_s, sig_simple=sig_label(p_s),
-        DID_DR=NA, SE_DR=NA, t_DR=NA, p_DR=NA, sig_DR="")
-      next
-    }
-    
-    coefs <- summary(reg_dr)$coefficients
-    did_dr <- coefs["treat_dummy", "Estimate"]
-    se_dr  <- coefs["treat_dummy", "Std. Error"]
-    t_dr   <- coefs["treat_dummy", "t value"]
-    p_dr   <- coefs["treat_dummy", "Pr(>|t|)"]
-    
-    res_dr[[ length(res_dr)+1 ]] <- list(
-      seg=seg, grp=g, grp_kr=grp_kr[g], cat=cat_, var=kr,
-      n_trt=n_t, n_ctrl=n_c,
-      DID_simple=did_s,  p_simple=p_s,  sig_simple=sig_label(p_s),
-      DID_DR=did_dr,     SE_DR=se_dr,   t_DR=t_dr,
-      p_DR=p_dr,         sig_DR=sig_label(p_dr))
-  }
-}
-
-
-# ==============================================================================
-  # --- 5-4. Continuous dose-response -----------------------------------------
-# ==============================================================================
-  for (vi in var_info) {
-    vn <- vi$vn; kr <- vi$kr
-    pre_v  <- ln_transform(seg_data[[ vi$pre  ]], vn)
-    post_v <- ln_transform(seg_data[[ vi$post ]], vn)
-    valid  <- !is.na(pre_v) & !is.na(post_v)
-    sub <- seg_data[valid, ]
-    sub$diff_y  <- post_v[valid] - pre_v[valid]
-    sub$tr      <- sub$funded
-    sub$ln_fv   <- log(pmax(sub$total_gfundvol, 0) + 1)
-    sub$tr_x_fv <- sub$tr * sub$ln_fv
-    if (nrow(sub) < 10) next
-    tryCatch({
-      mod <- lm(diff_y ~ tr + tr_x_fv, data=sub)
-      rob <- coeftest(mod, vcov=vcovHC(mod, type="HC1"))
-      res_cont[[ length(res_cont)+1 ]] <- list(
-        seg=seg, var=kr, N=nrow(sub),
-        b_treat=round(rob["tr","Estimate"],4),
-        p_treat=round(rob["tr","Pr(>|t|)"],4),
-        b_dose=round(rob["tr_x_fv","Estimate"],6),
-        t_dose=round(rob["tr_x_fv","t value"],3),
-        p_dose=round(rob["tr_x_fv","Pr(>|t|)"],4),
-        sig_dose=sig_label(rob["tr_x_fv","Pr(>|t|)"]),
-        R2=round(summary(mod)$r.squared,4))
-    }, error=function(e) NULL)
-  }
-}
-
-cat("\n====== Analysis Complete ======\n")
-
-
-# ==============================================================================
-# -- 6. 결과 조립 및 출력 -----------------------------------------------------
-# ==============================================================================
-
-df_did   <- to_df(res_did)
-df_dummy <- to_df(res_dummy)
-df_pt    <- to_df(res_pt)
-df_cont  <- to_df(res_cont)
-df_dr    <- to_df(res_dr)   # [20260503]
-
-# Wide format
-make_wide <- function(df_sub) {
-  df_sub %>%
-    select(var, grp_kr, did, p_val, sig) %>%
-    pivot_wider(names_from=grp_kr,
-                values_from=c(did, p_val, sig),
-                names_glue="{grp_kr}_{.value}")
-}
-wide_mat <- make_wide(df_did[df_did$seg == "소재", ])
-wide_prt <- make_wide(df_did[df_did$seg == "부품", ])
-wide_eqp <- make_wide(df_did[df_did$seg == "장비", ])
-
-# [20260503] DR-DID Wide format
-make_wide_dr <- function(df_sub) {
-  df_sub %>%
-    select(var, grp_kr, DID_DR, p_DR, sig_DR) %>%
-    pivot_wider(names_from=grp_kr,
-                values_from=c(DID_DR, p_DR, sig_DR),
-                names_glue="{grp_kr}_{.value}")
-}
-wide_dr_mat <- if (nrow(df_dr) > 0) make_wide_dr(df_dr[df_dr$seg == "소재", ]) else NULL
-wide_dr_prt <- if (nrow(df_dr) > 0) make_wide_dr(df_dr[df_dr$seg == "부품", ]) else NULL
-wide_dr_eqp <- if (nrow(df_dr) > 0) make_wide_dr(df_dr[df_dr$seg == "장비", ]) else NULL
-
-# Console output
-cat("\n", strrep("=",80), "\n")
-cat("Significant DID (p < 0.1)\n", strrep("=",80), "\n")
-sig_did <- df_did[df_did$sig != "ns" & df_did$sig != "", ]
-print(sig_did[, c("seg","grp_kr","var","did","t_val","p_val","sig")])
-
-cat("\n", strrep("=",80), "\n")
-cat("F-heterogeneity significant (p < 0.1)\n", strrep("=",80), "\n")
-sig_f <- df_dummy[df_dummy$sig_F %in% c("***","**","*","."), ]
-print(sig_f[, c("seg","var","did_low","did_mid","did_high","p_F","sig_F","p_hv_l","p_hv_m","p_mv_l")])
-
-cat("\n", strrep("=",80), "\n")
-cat("Parallel Trends\n", strrep("=",80), "\n")
-print(table(df_pt$judge))
-pt_prob <- df_pt[df_pt$judge != "O_pass", ]
-if (nrow(pt_prob)>0) { cat("Issues:\n"); print(pt_prob) }
-
-cat("\n", strrep("=",80), "\n")
-cat("Continuous dose-response significant (p < 0.1)\n", strrep("=",80), "\n")
-sig_c <- df_cont[df_cont$sig_dose != "ns" & df_cont$sig_dose != "", ]
-if (nrow(sig_c)>0) print(sig_c) else cat("  None\n")
-
-
-# ==============================================================================
-# -- 7. Excel 저장 (한글 컬럼명 복원) ------------------------------------------
-# ==============================================================================
-
-write_xlsx(
-  list(
-    "Simple_DID_result"    = df_did %>% rename(부문=seg, 금액그룹=grp_kr, 카테고리=cat, 변수=var,
-                                               N_처치=n_trt, N_통제=n_ctrl, 처치_pre=trt_pre, 처치_post=trt_post,
-                                               통제_pre=ctrl_pre, 통제_post=ctrl_post, DID=did,
-                                               t_value=t_val, p_value=p_val, 유의성=sig),
-    "dummy_model(Anova)"   = df_dummy %>% rename(부문=seg, 카테고리=cat, 변수=var,
-                                                 N_통제=n_ctrl, N_하위=n_low, N_중위=n_mid, N_상위=n_high,
-                                                 통제평균diff=ctrl_mean_diff,
-                                                 DID_하위=did_low, DID_중위=did_mid, DID_상위=did_high,
-                                                 p_하위=p_low, p_중위=p_mid, p_상위=p_high,
-                                                 sig_하위=sig_low, sig_중위=sig_mid, sig_상위=sig_high,
-                                                 p_F이질성=p_F, sig_F이질성=sig_F,
-                                                 p_상vs하=p_hv_l, p_상vs중=p_hv_m, p_중vs하=p_mv_l),
-    "parallel_trend(평행추세)" = df_pt %>% rename(부문=seg, 금액그룹=grp_kr, 변수=var,
-                                              t값=t_val, p값=p_val, 판정=judge),
-    "연속-Dose반응"    = df_cont %>% rename(부문=seg, 변수=var),
-    "DoublyRobust_DID"        = df_dr %>% rename(부문=seg, 금액그룹=grp_kr, 카테고리=cat, 변수=var,
-                                                 N_처치=n_trt, N_통제=n_ctrl),   # [20260503]
-    "Wide_소재"     = wide_mat,
-    "Wide_부품"     = wide_prt,
-    "Wide_장비"     = wide_eqp,
-    
-    "DR_Wide_소재"  = wide_dr_mat,
-    "DR_Wide_부품"  = wide_dr_prt,
-    "DR_Wide_장비"  = wide_dr_eqp
-  ),
-  path = "DID_FundAmount_Seg_R.xlsx"
-)
-cat("\nSaved: DID_FundAmount_Seg_R.xlsx\n")
-
-
-# ==============================================================================
-# -- 8. (보너스) 투자 횟수(n_funded) 기준 DID ----------------------------------
-# 4-2 와 중복되는 코드로 삭제
-# ==============================================================================
-
-cat("\n", strrep("=",80), "\n")
-cat("=== N_funded analysis ===\n", strrep("=",80), "\n")
-
-nf_did <- list(); nf_dummy <- list(); nf_pt <- list()
-nf_dr  <- list()   # [20260503]
-
-for (seg in segments) {
-  seg_data <- raw[raw$seg_name == seg, ]
-  ctrl <- seg_data[seg_data$funded == 0, ]
-  
-  # [20260503] 부문 단위 사전값 행렬
-  pre_mat_seg <- make_pre_matrix(seg_data)
-  
-  for (vi in var_info) {
-    vn <- vi$vn; kr <- vi$kr; cat_ <- vi$cat
-    cp <- ln_transform(ctrl[[ vi$pre  ]], vn)
-    cq <- ln_transform(ctrl[[ vi$post ]], vn)
-    cm <- !is.na(cp) & !is.na(cq); cd <- cq[cm] - cp[cm]
-    
-    g_d <- list(); g_did <- list(); g_n <- list(); g_p <- list()
-    for (nf in 1:3) {
-      g <- paste0(nf, "x")
-      gd <- seg_data[seg_data$n_funded == nf, ]
-      tp <- ln_transform(gd[[ vi$pre ]], vn)
-      tq <- ln_transform(gd[[ vi$post ]], vn)
-      tm <- !is.na(tp) & !is.na(tq); td <- tq[tm] - tp[tm]
-      g_d[[g]] <- td; g_n[[g]] <- sum(tm)
-      if (sum(tm)>=5 & sum(cm)>=5) {
-        dv <- mean(td)-mean(cd); tt <- t.test(td,cd,var.equal=FALSE)
-        g_did[[g]] <- dv; g_p[[g]] <- tt$p.value
-        nf_did[[ length(nf_did)+1 ]] <- list(
-          seg=seg, nf=nf, nf_label=paste0(nf,"회"), cat=cat_, var=kr,
-          n_trt=sum(tm), n_ctrl=sum(cm), did=dv,
-          t_val=tt$statistic[[1]], p_val=tt$p.value, sig=sig_label(tt$p.value))
-      } else { g_did[[g]] <- NA; g_p[[g]] <- NA }
-    }
-    
-    al <- c(list(cd), g_d[sapply(g_d, function(x) length(x)>=3)])
-    fp <- if(length(al)>=2) {
-      adf <- data.frame(diff=unlist(al), group=factor(rep(seq_along(al), sapply(al,length))))
-      summary(aov(diff~group, data=adf))[[1]]$`Pr(>F)`[1]
-    } else NA
-    
-    nf_dummy[[ length(nf_dummy)+1 ]] <- list(
-      seg=seg, cat=cat_, var=kr,
-      n_0=sum(cm), n_1=g_n[["1x"]], n_2=g_n[["2x"]], n_3=g_n[["3x"]],
-      ctrl_diff=mean(cd),
-      did_1=g_did[["1x"]], did_2=g_did[["2x"]], did_3=g_did[["3x"]],
-      p_1=g_p[["1x"]], p_2=g_p[["2x"]], p_3=g_p[["3x"]],
-      sig_1=sig_label(g_p[["1x"]]), sig_2=sig_label(g_p[["2x"]]), sig_3=sig_label(g_p[["3x"]]),
-      p_F=fp, sig_F=sig_label(fp),
-      p_3v1=pw_test(g_d[["3x"]],g_d[["1x"]]),
-      p_3v2=pw_test(g_d[["3x"]],g_d[["2x"]]),
-      p_2v1=pw_test(g_d[["2x"]],g_d[["1x"]]))
-    
-    cp2 <- ln_transform(ctrl[[ vi$pt_pre  ]], vn)
-    cq2 <- ln_transform(ctrl[[ vi$pt_post ]], vn)
-    cm2 <- !is.na(cp2) & !is.na(cq2); cd2 <- cq2[cm2] - cp2[cm2]
-    for (nf in 1:3) {
-      g <- paste0(nf, "x")
-      gd <- seg_data[seg_data$n_funded == nf, ]
-      tp2 <- ln_transform(gd[[ vi$pt_pre  ]], vn)
-      tq2 <- ln_transform(gd[[ vi$pt_post ]], vn)
-      tm2 <- !is.na(tp2) & !is.na(tq2); td2 <- tq2[tm2] - tp2[tm2]
-      if (sum(tm2)>=3 & sum(cm2)>=3) {
-        ptt <- t.test(td2, cd2, var.equal=FALSE)
-        nf_pt[[ length(nf_pt)+1 ]] <- list(seg=seg, nf=nf, nf_label=paste0(nf,"회"), var=kr,
-                                           t_val=round(ptt$statistic[[1]],4), p_val=round(ptt$p.value,4), judge=pt_judge(ptt$p.value))
-      } else {
-        nf_pt[[ length(nf_pt)+1 ]] <- list(seg=seg, nf=nf, nf_label=paste0(nf,"회"), var=kr,
-                                           t_val=NA, p_val=NA, judge="N/A")
-      }
-    }
-    
-    # --- [20260503] DR-DID for n_funded analysis -----------------------------
+    # ==============================================================================
+    # --- 5-4. [20260503] Doubly Robust DID -----------------------------------
+    #  for each amount group g: lm(diff_y ~ treat_dummy + 7개 사전공변량)
+    #  공변량 = pre_mat_seg에서 자기자신의 _pre 컬럼 제외한 나머지 7개
+    # ==============================================================================
     pre_v_full  <- ln_transform(seg_data[[ vi$pre  ]], vn)
     post_v_full <- ln_transform(seg_data[[ vi$post ]], vn)
     
     cov_pre_cols <- setdiff(colnames(pre_mat_seg), paste0(vn, "_pre"))
     
-    for (nf in 1:3) {
-      sel <- (seg_data$n_funded == nf) | (seg_data$funded == 0)
+    for (g in grp_labels) {
+      sel <- seg_data$amt_group %in% c(g, "ctrl")
       
-      df_dr_nf <- data.frame(
+      df_dr <- data.frame(
         diff_y      = post_v_full[sel] - pre_v_full[sel],
-        treat_dummy = as.integer(seg_data$n_funded[sel] == nf & seg_data$funded[sel] == 1),
+        treat_dummy = as.integer(seg_data$amt_group[sel] == g),
         pre_mat_seg[sel, cov_pre_cols, drop=FALSE]
       )
-      df_dr_nf <- df_dr_nf[complete.cases(df_dr_nf), ]
+      df_dr <- df_dr[complete.cases(df_dr), ]
       
-      n_t <- sum(df_dr_nf$treat_dummy == 1)
-      n_c <- sum(df_dr_nf$treat_dummy == 0)
+      n_t <- sum(df_dr$treat_dummy == 1)
+      n_c <- sum(df_dr$treat_dummy == 0)
       
-      if (n_t < 5 || n_c < 5 || nrow(df_dr_nf) < length(cov_pre_cols) + 5) {
-        nf_dr[[ length(nf_dr)+1 ]] <- list(
-          seg=seg, nf=nf, nf_label=paste0(nf,"회"), cat=cat_, var=kr,
+      if (n_t < 5 || n_c < 5 || nrow(df_dr) < length(cov_pre_cols) + 5) {
+        res_dr[[ length(res_dr)+1 ]] <- list(
+          seg=seg, grp=g, grp_kr=grp_kr[g], cat=cat_, var=kr,
           n_trt=n_t, n_ctrl=n_c,
           DID_simple=NA, p_simple=NA, sig_simple="",
           DID_DR=NA, SE_DR=NA, t_DR=NA, p_DR=NA, sig_DR="")
         next
       }
       
-      # Simple DID (lm)
-      reg_s <- tryCatch(lm(diff_y ~ treat_dummy, data=df_dr_nf),
+      # (A) Simple DID (lm version, 비교용)
+      reg_s <- tryCatch(lm(diff_y ~ treat_dummy, data=df_dr),
                         error=function(e) NULL)
       did_s <- if (!is.null(reg_s)) coef(reg_s)["treat_dummy"] else NA
       p_s   <- if (!is.null(reg_s))
         summary(reg_s)$coefficients["treat_dummy","Pr(>|t|)"] else NA
       
-      # DR-DID
+      # (B) Doubly Robust: 자기자신 _pre 제외한 나머지 7개 _pre 통제
       fmla <- as.formula(paste("diff_y ~ treat_dummy +",
                                paste(cov_pre_cols, collapse=" + ")))
-      reg_dr <- tryCatch(lm(fmla, data=df_dr_nf), error=function(e) NULL)
+      reg_dr <- tryCatch(lm(fmla, data=df_dr), error=function(e) NULL)
       
       if (is.null(reg_dr) || !("treat_dummy" %in% rownames(summary(reg_dr)$coefficients))) {
-        nf_dr[[ length(nf_dr)+1 ]] <- list(
-          seg=seg, nf=nf, nf_label=paste0(nf,"회"), cat=cat_, var=kr,
+        res_dr[[ length(res_dr)+1 ]] <- list(
+          seg=seg, grp=g, grp_kr=grp_kr[g], cat=cat_, var=kr,
           n_trt=n_t, n_ctrl=n_c,
           DID_simple=did_s, p_simple=p_s, sig_simple=sig_label(p_s),
           DID_DR=NA, SE_DR=NA, t_DR=NA, p_DR=NA, sig_DR="")
@@ -603,50 +350,199 @@ for (seg in segments) {
       t_dr   <- coefs["treat_dummy", "t value"]
       p_dr   <- coefs["treat_dummy", "Pr(>|t|)"]
       
-      nf_dr[[ length(nf_dr)+1 ]] <- list(
-        seg=seg, nf=nf, nf_label=paste0(nf,"회"), cat=cat_, var=kr,
+      res_dr[[ length(res_dr)+1 ]] <- list(
+        seg=seg, grp=g, grp_kr=grp_kr[g], cat=cat_, var=kr,
         n_trt=n_t, n_ctrl=n_c,
         DID_simple=did_s,  p_simple=p_s,  sig_simple=sig_label(p_s),
         DID_DR=did_dr,     SE_DR=se_dr,   t_DR=t_dr,
         p_DR=p_dr,         sig_DR=sig_label(p_dr))
-    } # --- [20260503] DR-DID for n_funded analysis -----------------------------
+    }
   }
+  
+  
+  # ============================================================================
+    # --- 5-4. Continuous dose-response ----------------------------------------
+    # diff_y ~ TR + TR × ln(금액) + TR × ln(금액)² 수정
+    # β₂(선형항)와 β₃(2차항)를 동시에 추정하면 역U형 또는 U형 관계 포착
+  # ============================================================================
+    
+    for (vi in var_info) {
+      vn <- vi$vn; kr <- vi$kr
+      pre_v  <- ln_transform(seg_data[[ vi$pre  ]], vn)
+      post_v <- ln_transform(seg_data[[ vi$post ]], vn)
+      valid  <- !is.na(pre_v) & !is.na(post_v)
+      sub    <- seg_data[valid, ]
+      sub$diff_y <- post_v[valid] - pre_v[valid]
+      sub$tr     <- sub$funded
+      sub$ln_fv  <- log(pmax(sub$total_gfundvol, 0) + 1)
+      sub$ln_fv2 <- sub$ln_fv^2
+      sub$tr_x_fv  <- sub$tr * sub$ln_fv
+      sub$tr_x_fv2 <- sub$tr * sub$ln_fv2
+      
+      if (nrow(sub) < 10) next
+      
+      # ★ 공변량: 자기자신 _pre 제외한 나머지 7개
+      cov_cols <- setdiff(colnames(pre_mat_seg), paste0(vn, "_pre"))
+      cov_df   <- pre_mat_seg[valid, cov_cols, drop=FALSE]
+      
+      sub_full <- cbind(sub, cov_df)
+      sub_full <- sub_full[complete.cases(sub_full[, c("diff_y","tr",
+                                                       "tr_x_fv","tr_x_fv2", cov_cols)]), ]
+      
+      if (nrow(sub_full) < length(cov_cols) + 5) next
+      
+      tryCatch({
+        # ── 선형 모형 (공변량 포함) ───────────────────────────
+        fmla_lin  <- as.formula(paste(
+          "diff_y ~ tr + tr_x_fv +",
+          paste(cov_cols, collapse=" + ")))
+        
+        # ── 2차항 모형 (공변량 포함) ──────────────────────────
+        fmla_quad <- as.formula(paste(
+          "diff_y ~ tr + tr_x_fv + tr_x_fv2 +",
+          paste(cov_cols, collapse=" + ")))
+        
+        mod_lin  <- lm(fmla_lin,  data=sub_full)
+        mod_quad <- lm(fmla_quad, data=sub_full)
+        rob_lin  <- coeftest(mod_lin,  vcov=vcovHC(mod_lin,  type="HC1"))
+        rob_quad <- coeftest(mod_quad, vcov=vcovHC(mod_quad, type="HC1"))
+        
+        # ── F검정: 2차항 필요성 판단 ──────────────────────────
+        anova_test <- anova(mod_lin, mod_quad)
+        f_quad_p   <- anova_test$`Pr(>F)`[2]
+        
+        # ── 최적 투자금액 (역U형: β₃ < 0 일 때만) ─────────────
+        b2 <- coef(mod_quad)["tr_x_fv"]
+        b3 <- coef(mod_quad)["tr_x_fv2"]
+        optimal_amt <- NA_real_
+        if (!is.na(b3) && b3 < 0) {
+          opt_ln_fv   <- -b2 / (2 * b3)
+          optimal_amt <- exp(opt_ln_fv) - 1
+        }
+        
+        # ── 결과 저장 ─────────────────────────────────────────
+        res_cont[[ length(res_cont)+1 ]] <- list(
+          seg         = seg, var = kr, N = nrow(sub_full),
+          # 선형 모형
+          b_treat     = round(rob_lin["tr",         "Estimate"], 4),
+          p_treat     = round(rob_lin["tr",         "Pr(>|t|)"], 4),
+          b_dose      = round(rob_lin["tr_x_fv",    "Estimate"], 6),
+          t_dose      = round(rob_lin["tr_x_fv",    "t value"],  3),
+          p_dose      = round(rob_lin["tr_x_fv",    "Pr(>|t|)"], 4),
+          sig_dose    = sig_label(rob_lin["tr_x_fv",  "Pr(>|t|)"]),
+          R2_lin      = round(summary(mod_lin)$r.squared, 4),
+          # 2차항 모형
+          b_dose2     = round(rob_quad["tr_x_fv2",  "Estimate"], 6),
+          t_dose2     = round(rob_quad["tr_x_fv2",  "t value"],  3),
+          p_dose2     = round(rob_quad["tr_x_fv2",  "Pr(>|t|)"], 4),
+          sig_dose2   = sig_label(rob_quad["tr_x_fv2", "Pr(>|t|)"]),
+          R2_quad     = round(summary(mod_quad)$r.squared, 4),
+          # 모형 비교
+          F_quad_p    = round(f_quad_p, 4),
+          F_quad_sig  = sig_label(f_quad_p),
+          optimal_amt = round(optimal_amt, 0)
+        )
+      }, error=function(e) NULL)
+    }
+  }
+
+  # ★ 여기부터 추가 ────────────────────────────────────────────
+  # 연도별 결과 누적
+  all_results[[as.character(POST_YEAR)]] <- list(
+    res_did   = res_did,
+    res_dummy = res_dummy,
+    res_pt    = res_pt,
+    res_cont  = res_cont,
+    res_dr    = res_dr
+    # nf_did    = nf_did,
+    # nf_dummy  = nf_dummy,
+    # nf_pt     = nf_pt,
+    # nf_dr     = nf_dr
+  )
+  cat(sprintf("\n★ POST_YEAR=%d 완료. 결과 누적.\n", POST_YEAR))
+
+}  # ← for (POST_YEAR in POST_YEARS) 루프 닫기
+cat("\n====== Analysis Complete ======\n")
+
+
+
+#===============================================================================
+# # 통합 저장
+#===============================================================================
+
+excel_sheets <- list()
+
+make_wide <- function(df_sub) {
+  df_sub %>%
+    select(var, grp_kr, did, p_val, sig) %>%
+    pivot_wider(names_from=grp_kr,
+                values_from=c(did, p_val, sig),
+                names_glue="{grp_kr}_{.value}")
 }
 
-df_nf_did   <- to_df(nf_did)
-df_nf_dummy <- to_df(nf_dummy)
-df_nf_pt    <- to_df(nf_pt)
-df_nf_dr    <- to_df(nf_dr)   # [20260503]
-
-cat("\n[N_funded] Significant DID:\n")
-if (nrow(df_nf_did)>0) {
-  s <- df_nf_did[df_nf_did$sig != "ns" & df_nf_did$sig != "", ]
-  print(s[, c("seg","nf_label","var","did","t_val","p_val","sig")])
-}
-cat("\n[N_funded] F-heterogeneity:\n")
-if (nrow(df_nf_dummy)>0) {
-  s2 <- df_nf_dummy[df_nf_dummy$sig_F %in% c("***","**","*","."), ]
-  print(s2[, c("seg","var","did_1","did_2","did_3","p_F","sig_F")])
+make_wide_dr <- function(df_sub) {
+  df_sub %>%
+    select(var, grp_kr, DID_DR, p_DR, sig_DR) %>%
+    pivot_wider(names_from=grp_kr,
+                values_from=c(DID_DR, p_DR, sig_DR),
+                names_glue="{grp_kr}_{.value}")
 }
 
-# 통합 저장
-write_xlsx(
-  list(
-    "amt_DID"      = df_did,
-    "amt_dummy"    = df_dummy,
-    "amt_PT"       = df_pt,
-    "amt_cont"     = df_cont,
-    "amt_DR_DID"     = df_dr,        # [20260503]
-    "amt_Wide_mat" = wide_mat,
-    "amt_Wide_prt" = wide_prt,
-    "amt_Wide_eqp" = wide_eqp,
-    "nf_DID"       = df_nf_did,
-    "nf_dummy"     = df_nf_dummy,
-    "nf_PT"        = df_nf_pt,
-    "nf_DR_DID"      = df_nf_dr      # [20260503]
-  ),
-  path = "DID_Amount_and_Nfunded_Combined.xlsx"
-)
+for (yr_key in names(all_results)) {
+  res <- all_results[[yr_key]]
+  sfx <- paste0("_", yr_key)          # "_2024" 또는 "_2025"
+  
+  # 데이터프레임 조립
+  df_did   <- to_df(res$res_did);    df_dummy <- to_df(res$res_dummy)
+  df_pt    <- to_df(res$res_pt);     df_cont  <- to_df(res$res_cont)
+  df_dr    <- to_df(res$res_dr)
 
-cat("\nSaved: DID_Amount_and_Nfunded_Combined.xlsx\n")
+  # Wide format 생성
+  wide_mat <- make_wide(df_did[df_did$seg == "소재", ])
+  wide_prt <- make_wide(df_did[df_did$seg == "부품", ])
+  wide_eqp <- make_wide(df_did[df_did$seg == "장비", ])
+  wide_dr_mat <- if (nrow(df_dr)>0) make_wide_dr(df_dr[df_dr$seg=="소재",]) else NULL
+  wide_dr_prt <- if (nrow(df_dr)>0) make_wide_dr(df_dr[df_dr$seg=="부품",]) else NULL
+  wide_dr_eqp <- if (nrow(df_dr)>0) make_wide_dr(df_dr[df_dr$seg=="장비",]) else NULL
+  
+  # 시트 등록 (접미사 _2024 / _2025)
+  excel_sheets[[paste0("amt_simple_DID",sfx)]] <- df_did
+  excel_sheets[[paste0("amt_Anova_Pair",sfx)]] <- df_dummy
+  excel_sheets[[paste0("amt_PT",        sfx)]] <- df_pt
+  excel_sheets[[paste0("amt_DoseRes",   sfx)]] <- df_cont
+  excel_sheets[[paste0("amt_DR_DID",    sfx)]] <- df_dr
+  excel_sheets[[paste0("amt_Wide_mat",  sfx)]] <- wide_mat
+  excel_sheets[[paste0("amt_Wide_prt",  sfx)]] <- wide_prt
+  excel_sheets[[paste0("amt_Wide_eqp",  sfx)]] <- wide_eqp
+  excel_sheets[[paste0("amt_Wide_DR_mat",  sfx)]] <- wide_mat
+  excel_sheets[[paste0("amt_Wide_DR_part",  sfx)]] <- wide_prt
+  excel_sheets[[paste0("amt_Wide_DR_eqp",  sfx)]] <- wide_eqp
+
+}
+
+write_xlsx(excel_sheets, path = "DID_Amount_Analysis.xlsx")
+cat(sprintf("\nSaved: DID_Amount Analysis.xlsx (%d 시트)\n", length(excel_sheets)))
 cat("====== All Done ======\n")
+
+
+# # 통합 저장
+# write_xlsx(
+#   list(
+#     "amt_DID"      = df_did,
+#     "amt_dummy"    = df_dummy,
+#     "amt_PT"       = df_pt,
+#     "amt_cont"     = df_cont,
+#     "amt_DR_DID"     = df_dr,        # [20260503]
+#     "amt_Wide_mat" = wide_mat,
+#     "amt_Wide_prt" = wide_prt,
+#     "amt_Wide_eqp" = wide_eqp,
+#     "nf_DID"       = df_nf_did,
+#     "nf_dummy"     = df_nf_dummy,
+#     "nf_PT"        = df_nf_pt,
+#     "nf_DR_DID"      = df_nf_dr      # [20260503]
+#   ),
+#   path = "DID_Amount_and_Nfunded_Combined.xlsx"
+# )
+# 
+# cat("\nSaved: DID_Amount_and_Nfunded_Combined.xlsx\n")
+# cat("====== All Done ======\n")
