@@ -60,7 +60,41 @@ print(paste("총 열 수:", ncol(ntis)))
 # 결과 저장
 write_xlsx(ntis, "ntis_integration.xlsx")
 
+
+# 사업자번호 정리 (공백, 하이픈 제거)
+sobujang$사업자번호_clean <- gsub("[[:space:]-]", "", sobujang$사업자번호)
+ntis$사업자등록번호_clean <- gsub("[[:space:]-]", "", ntis$사업자등록번호)
+valuesearch$사업자번호_clean <- gsub("[[:space:]-]", "", valuesearch$`691020.사업자번호`)
+
+#==============================================================================
+# NTIS 데이터 매칭 전체
+#===============================================================================
+# TLC - Technology Life Cycle
+# 도입기 = 1, 성장기 = 2, 성숙기 = 3, 쇠퇴기 = 4
+ntis <- ntis %>%
+  mutate(
+    tlc = case_when(
+      str_detect(ntis$기술수명주기, "도입기") ~ 1,
+      str_detect(ntis$기술수명주기, "성장기") ~ 2,
+      str_detect(ntis$기술수명주기, "성숙기") ~ 3,
+      str_detect(ntis$기술수명주기, "쇠퇴기") ~ 4,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# 결과 확인 (선택사항)
+table(ntis$tlc)
+
+sobujang <- sobujang %>%
+  left_join(
+    ntis %>% select(사업자등록번호_clean, tlc),
+    by = c("사업자번호_clean" = "사업자등록번호_clean")
+  )
+
+table(sobujang$tlc)
+#==============================================================================
 # 2020,2021,2022년도 이상만 필터링
+#==============================================================================
 ntis <- ntis %>%
   filter(ntis$기준년도 %in% c(2020,2021,2022))  # 칼럼명에 맞춰 조정 필요
 
@@ -73,14 +107,9 @@ write_xlsx(ntis, "ntis_integration_2020-2022.xlsx")
 
 #사업자 번호 매칭 
 #==============================================================================
+# NTIS 데이터 매칭 Only 2020,2021,2022
+#===============================================================================
 
-# 사업자번호 정리 (공백, 하이픈 제거)
-sobujang$사업자번호_clean <- gsub("[[:space:]-]", "", sobujang$사업자번호)
-ntis$사업자등록번호_clean <- gsub("[[:space:]-]", "", ntis$사업자등록번호)
-valuesearch$사업자번호_clean <- gsub("[[:space:]-]", "", valuesearch$`691020.사업자번호`)
-
-# 정부 투자 받은 기업 목록
-#government_funded <- unique(ntis$사업자등록번호_clean[!is.na(ntis$사업자등록번호_clean)])
 #연도별 정부 투자 기업 목록 생성
 government_funded_2020 <- unique(ntis$사업자등록번호_clean[ntis$기준년도 == 2020 & !is.na(ntis$사업자등록번호_clean)])
 government_funded_2021 <- unique(ntis$사업자등록번호_clean[ntis$기준년도 == 2021 & !is.na(ntis$사업자등록번호_clean)])
@@ -523,6 +552,7 @@ merged_data <- merged_data %>%
 # 확인
 merged_data %>%
   summarise(
+    opm2018 = sum(opm2018, na.rm = TRUE),
     opm2019 = sum(opm2019, na.rm = TRUE),
     opm2020 = sum(opm2020, na.rm = TRUE),
     opm2021 = sum(opm2021, na.rm = TRUE),
@@ -539,6 +569,7 @@ merged_data %>%
 # 년도별 노동생산성 (총수익/종업원수) 계산
 merged_data <- merged_data %>%
   mutate(
+    labor_prod2018 = as.numeric(`2018/Annual S21100.총수익`) / as.numeric(`2018/Annual S05000.종업원수`),
     labor_prod2019 = as.numeric(`2019/Annual S21100.총수익`) / as.numeric(`2019/Annual S05000.종업원수`),
     labor_prod2020 = as.numeric(`2020/Annual S21100.총수익`) / as.numeric(`2020/Annual S05000.종업원수`),
     labor_prod2021 = as.numeric(`2021/Annual S21100.총수익`) / as.numeric(`2021/Annual S05000.종업원수`),
@@ -551,6 +582,7 @@ merged_data <- merged_data %>%
 # 확인
 merged_data %>%
   summarise(
+    avg_labor_prod2018 = mean(labor_prod2018, na.rm = TRUE),
     avg_labor_prod2019 = mean(labor_prod2019, na.rm = TRUE),
     avg_labor_prod2020 = mean(labor_prod2020, na.rm = TRUE),
     avg_labor_prod2021 = mean(labor_prod2021, na.rm = TRUE),
@@ -710,9 +742,9 @@ cat("=== 연도 고정 항목 ===\n")
 print(fixed_na, width = Inf)
 
 # ── 연도별 반복 항목 ───────────────────────────────────────────
-# 2019 - 2025
+# 2018 - 2025
 
-years <- 2019:2025
+years <- 2018:2025
 
 result <- map_dfr(years, function(yr) {
   merged_data %>%
