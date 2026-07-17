@@ -66,32 +66,7 @@ sobujang$사업자번호_clean <- gsub("[[:space:]-]", "", sobujang$사업자번
 ntis$사업자등록번호_clean <- gsub("[[:space:]-]", "", ntis$사업자등록번호)
 valuesearch$사업자번호_clean <- gsub("[[:space:]-]", "", valuesearch$`691020.사업자번호`)
 
-#==============================================================================
-# NTIS 데이터 매칭 전체
-#===============================================================================
-# TLC - Technology Life Cycle
-# 도입기 = 1, 성장기 = 2, 성숙기 = 3, 쇠퇴기 = 4
-ntis <- ntis %>%
-  mutate(
-    tlc = case_when(
-      str_detect(ntis$기술수명주기, "도입기") ~ 1,
-      str_detect(ntis$기술수명주기, "성장기") ~ 2,
-      str_detect(ntis$기술수명주기, "성숙기") ~ 3,
-      str_detect(ntis$기술수명주기, "쇠퇴기") ~ 4,
-      TRUE ~ NA_integer_
-    )
-  )
 
-# 결과 확인 (선택사항)
-table(ntis$tlc)
-
-sobujang <- sobujang %>%
-  left_join(
-    ntis %>% select(사업자등록번호_clean, tlc),
-    by = c("사업자번호_clean" = "사업자등록번호_clean")
-  )
-
-table(sobujang$tlc)
 #==============================================================================
 # 2020,2021,2022년도 이상만 필터링
 #==============================================================================
@@ -104,6 +79,40 @@ print(paste("총 열 수:", ncol(ntis)))
 
 # 결과 저장
 write_xlsx(ntis, "ntis_integration_2020-2022.xlsx")
+#==============================================================================
+# NTIS 데이터 매칭 전체
+#===============================================================================
+# TLC - Technology Life Cycle
+# 도입기 = 1, 성장기 = 2, 성숙기 = 3, 쇠퇴기 = 4
+ntis <- ntis %>%
+  mutate(
+    tlc = case_when(
+      str_detect(기술수명주기, "도입기") ~ 1,
+      str_detect(기술수명주기, "성장기") ~ 2,
+      str_detect(기술수명주기, "성숙기") ~ 3,
+      str_detect(기술수명주기, "쇠퇴기") ~ 4,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# 결과 확인 (선택사항)
+table(ntis$tlc)
+nrow(sobujang)
+
+ntis_tlc <- ntis %>%
+  group_by(사업자등록번호_clean) %>%
+  summarise(tlc = first(na.omit(tlc)), .groups = "drop")
+
+sobujang <- sobujang %>%
+  left_join(
+    ntis_tlc,
+    by = c("사업자번호_clean" = "사업자등록번호_clean")
+  )
+
+table(sobujang$tlc)
+nrow(sobujang)
+
+
 
 #사업자 번호 매칭 
 #==============================================================================
