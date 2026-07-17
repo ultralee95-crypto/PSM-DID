@@ -412,6 +412,7 @@ cat("✓ PSM_AB_comparison.xlsx\n")
 
 # 방법B 매칭 데이터 저장 (DID 분석에 사용 가능)
 write_xlsx(matched_data_B, "matched_dataset_segPSM.xlsx")
+write_xlsx(matched_data_A, "matched_dataset_AllPSM.xlsx")
 cat("✓ matched_dataset_segPSM.xlsx\n")
 
 cat("\n=== 분석 완료 ===\n")
