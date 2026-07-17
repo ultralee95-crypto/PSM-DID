@@ -506,17 +506,17 @@ for (yr_key in names(all_results)) {
   wide_dr_eqp <- if (nrow(df_dr)>0) make_wide_dr(df_dr[df_dr$seg=="장비",]) else NULL
   
   # 시트 등록 (접미사 _2024 / _2025)
-  excel_sheets[[paste0("amt_simple_DID",sfx)]] <- df_did
-  excel_sheets[[paste0("amt_Anova_Pair",sfx)]] <- df_dummy
-  excel_sheets[[paste0("amt_PT",        sfx)]] <- df_pt
-  excel_sheets[[paste0("amt_DoseRes",   sfx)]] <- df_cont
-  excel_sheets[[paste0("amt_DR_DID",    sfx)]] <- df_dr
-  excel_sheets[[paste0("amt_Wide_mat",  sfx)]] <- wide_mat
-  excel_sheets[[paste0("amt_Wide_prt",  sfx)]] <- wide_prt
-  excel_sheets[[paste0("amt_Wide_eqp",  sfx)]] <- wide_eqp
-  excel_sheets[[paste0("amt_Wide_DR_mat",  sfx)]] <- wide_mat
-  excel_sheets[[paste0("amt_Wide_DR_part",  sfx)]] <- wide_prt
-  excel_sheets[[paste0("amt_Wide_DR_eqp",  sfx)]] <- wide_eqp
+  excel_sheets[[paste0("금액_simple_DID",sfx)]] <- df_did
+  excel_sheets[[paste0("금액_Anova_Pair",sfx)]] <- df_dummy
+  excel_sheets[[paste0("금액_P-Trends", sfx)]] <- df_pt
+  excel_sheets[[paste0("금액_DoseRes",   sfx)]] <- df_cont
+  excel_sheets[[paste0("금액_DR_DID",    sfx)]] <- df_dr
+  excel_sheets[[paste0("금액_Wide_소재",  sfx)]] <- wide_mat
+  excel_sheets[[paste0("금액_Wide_부품",  sfx)]] <- wide_prt
+  excel_sheets[[paste0("금액_Wide_장비",  sfx)]] <- wide_eqp
+  excel_sheets[[paste0("금액_Wide_DR_소재",  sfx)]] <- wide_mat
+  excel_sheets[[paste0("금액_Wide_DR_부품",  sfx)]] <- wide_prt
+  excel_sheets[[paste0("금액_Wide_DR_장비",  sfx)]] <- wide_eqp
 
 }
 

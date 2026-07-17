@@ -523,7 +523,7 @@ if (length(res_att_gt) > 0) {
 
 if (length(res_simple) > 0) {
   df_s <- bind_rows(res_simple)
-  xl[["θsimple"]] <- df_s
+  xl[["θ_simple"]] <- df_s
   # 부문별 wide
   df_s_wide <- df_s %>%
     select(var, seg, ATT, SE, p_val, sig) %>%
@@ -535,7 +535,7 @@ if (length(res_simple) > 0) {
 
 if (length(res_group) > 0) {
   df_grp <- bind_rows(res_group)
-  xl[["θgroup"]] <- df_grp
+  xl[["θ_group"]] <- df_grp
   # 부품 g=2020 별도 시트
   xl[["θgroup_부품_g2020"]] <- df_grp[df_grp$seg=="부품" &
                                       df_grp$cohort==2020,]
@@ -543,7 +543,7 @@ if (length(res_group) > 0) {
 
 if (length(res_dynamic) > 0) {
   df_dyn <- bind_rows(res_dynamic)
-  xl[["θdynamic"]] <- df_dyn
+  xl[["θ_dynamic"]] <- df_dyn
   for (seg in segments)
     xl[[paste0("Dynamic_",seg)]] <- df_dyn[df_dyn$seg==seg,]
   
