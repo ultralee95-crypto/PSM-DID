@@ -6,6 +6,7 @@
 # change to 노동비용 (lbcost) = 인건비 + 노무비
 # add OPM (Operation Margin), OPM 결측치 제거 추가.
 # 2025년도 자료 추가 
+# 20260718 NTIS 데이터를 추가 머지 - TLC, 연구개발단계, 연구수행주체, 세부과제_지원유형, 연구기간, 민간매칭률
 # ============================================================
 
 install.packages("readxl")      # 엑셀 읽기
@@ -66,106 +67,188 @@ sobujang$사업자번호_clean <- gsub("[[:space:]-]", "", sobujang$사업자번
 ntis$사업자등록번호_clean <- gsub("[[:space:]-]", "", ntis$사업자등록번호)
 valuesearch$사업자번호_clean <- gsub("[[:space:]-]", "", valuesearch$`691020.사업자번호`)
 
-
-#==============================================================================
-# 2020,2021,2022년도 이상만 필터링
-#==============================================================================
-ntis <- ntis %>%
-  filter(ntis$기준년도 %in% c(2020,2021,2022))  # 칼럼명에 맞춰 조정 필요
+# ==============================================================================
+# [수정] NTIS 변수 추가 블록
+# 수정 이유:
+#   BUG-1: left_join 전에 연도 필터를 해야 행 폭발 방지
+#   BUG-2: gfundvol 등 ifelse에서 ntis 벡터 직접 참조 → 길이 불일치
+#   NEW:   연구개발단계·민간매칭률·연구수행주체·세부과제_지원유형·연구기간
+#          5개 변수를 기업 단위로 집계 후 left_join
+# ==============================================================================
+# ── STEP 1: 연도 필터 먼저 (행 폭발 방지 핵심) ──────────────────────────────
+ntis_treat <- ntis %>%
+  filter(기준년도 %in% c(2020,2021,2022))
 
 # 결과 확인
-print(paste("총 행 수:", nrow(ntis)))
-print(paste("총 열 수:", ncol(ntis)))
+print(paste("총 행 수:", nrow(ntis_treat)))
+print(paste("총 열 수:", ncol(ntis_treat)))
 
 # 결과 저장
-write_xlsx(ntis, "ntis_integration_2020-2022.xlsx")
-#==============================================================================
-# NTIS 데이터 매칭 전체
-#===============================================================================
-# TLC - Technology Life Cycle
-# 도입기 = 1, 성장기 = 2, 성숙기 = 3, 쇠퇴기 = 4
-ntis <- ntis %>%
+write_xlsx(ntis_treat, "ntis_integration_2020-2022.xlsx")
+
+# ── STEP 2: NTIS 변수 파생 (과제 단위) ──────────────────────────────────────
+ntis_treat <- ntis_treat %>%
   mutate(
+    # 기존: TLC
     tlc = case_when(
-      str_detect(기술수명주기, "도입기") ~ 1,
-      str_detect(기술수명주기, "성장기") ~ 2,
-      str_detect(기술수명주기, "성숙기") ~ 3,
-      str_detect(기술수명주기, "쇠퇴기") ~ 4,
+      str_detect(기술수명주기, "도입기") ~ 1L,
+      str_detect(기술수명주기, "성장기") ~ 2L,
+      str_detect(기술수명주기, "성숙기") ~ 3L,
+      str_detect(기술수명주기, "쇠퇴기") ~ 4L,
       TRUE ~ NA_integer_
-    )
+    ),
+    
+    # 신규 1: 연구개발단계 (기초=1, 응용=2, 개발=3)
+    rd_stage = case_when(
+      str_detect(연구개발단계, "기초") ~ 1L,
+      str_detect(연구개발단계, "응용") ~ 2L,
+      str_detect(연구개발단계, "개발") ~ 3L,
+      TRUE ~ NA_integer_
+    ),
+    
+    # 신규 2: 연구수행주체 (중소기업=1, 대학=2, 출연연=3, 기타=4)
+    perform_type = case_when(
+      str_detect(연구수행주체, "중소기업|중견기업") ~ 1L,
+      str_detect(연구수행주체, "대학")             ~ 2L,
+      str_detect(연구수행주체, "출연연구소|출연")   ~ 3L,
+      TRUE                                         ~ 4L
+    ),
+    
+    # 신규 3: 세부과제_지원유형 (자유공모=1, 품목지정=2, 하향식=3)
+    support_type = case_when(
+      str_detect(세부과제_지원유형, "자유공모") ~ 1L,
+      str_detect(세부과제_지원유형, "품목지정") ~ 2L,
+      str_detect(세부과제_지원유형, "하향식")   ~ 3L,
+      TRUE ~ NA_integer_
+    ),
+    
+    # 신규 4: 연구기간(파생) = 종료연도 - 시작연도 + 1
+    research_dur = suppressWarnings(
+      as.numeric(str_sub(as.character(총연구기간종료일), 1, 4)) -
+        as.numeric(str_sub(as.character(총연구기간시작일), 1, 4)) + 1
+    ),
+    
+    # 신규 5: 민간매칭률 파생 (과제 단위)
+    # 분모=0 방지: 연구비합계가 0이거나 NA이면 NA 처리
+    priv_match_rate = case_when(
+      is.na(연구비합계) | 연구비합계 == 0 ~ NA_real_,
+      TRUE ~ as.numeric(민간연구비_소계) / as.numeric(연구비합계)
+    ),
+    
+    # 연구비합계 수치형 변환 (gfundvol join용)
+    연구비합계_num = suppressWarnings(as.numeric(연구비합계))
   )
 
-# 결과 확인 (선택사항)
-table(ntis$tlc)
-nrow(sobujang)
+# ── STEP 3: 기업 단위 집계 (1기업 1행) ──────────────────────────────────────
+# 같은 기업이 여러 과제를 수행한 경우:
+#   - 범주형(tlc, rd_stage 등): 최빈값 또는 첫 번째 유효값
+#   - 연속형(민간매칭률, 연구기간): 평균 또는 합계
+#   - 투자금액: 합계 (여러 과제 합산)
 
-ntis_tlc <- ntis %>%
+ntis_firm <- ntis_treat %>%
   group_by(사업자등록번호_clean) %>%
-  summarise(tlc = first(na.omit(tlc)), .groups = "drop")
+  summarise(
+    # 기존
+    tlc            = first(na.omit(tlc)),
+    
+    # 신규 범주형 — 최빈값 함수
+    rd_stage       = {
+      v <- na.omit(rd_stage)
+      if (length(v) == 0) NA_integer_
+      else as.integer(names(sort(table(v), decreasing=TRUE))[1])
+    },
+    perform_type   = {
+      v <- na.omit(perform_type)
+      if (length(v) == 0) NA_integer_
+      else as.integer(names(sort(table(v), decreasing=TRUE))[1])
+    },
+    support_type   = {
+      v <- na.omit(support_type)
+      if (length(v) == 0) NA_integer_
+      else as.integer(names(sort(table(v), decreasing=TRUE))[1])
+    },
+    
+    # 신규 연속형 — 평균
+    research_dur   = mean(research_dur,    na.rm=TRUE),
+    priv_match_rate= mean(priv_match_rate, na.rm=TRUE),
+    
+    # 연도별 투자금액 합계 (기존 gfundvol 대체)
+    gfundvol2020   = sum(연구비합계_num[기준년도==2020], na.rm=TRUE),
+    gfundvol2021   = sum(연구비합계_num[기준년도==2021], na.rm=TRUE),
+    gfundvol2022   = sum(연구비합계_num[기준년도==2022], na.rm=TRUE),
+    
+    # 사업명, 부처명 (연도별 첫 번째 값)
+    fundname2020   = first(사업명[기준년도==2020]),
+    fundname2021   = first(사업명[기준년도==2021]),
+    fundname2022   = first(사업명[기준년도==2022]),
+    gov2020        = first(부처명[기준년도==2020]),
+    gov2021        = first(부처명[기준년도==2021]),
+    gov2022        = first(부처명[기준년도==2022]),
+    
+    .groups = "drop"
+  )
+
+# 행 수 검증 — 반드시 고유 기업 수와 일치해야 함
+stopifnot(nrow(ntis_firm) == n_distinct(ntis_treat$사업자등록번호_clean))
+cat("기업 단위 집계 완료:", nrow(ntis_firm), "개사\n")
+
+# ── STEP 4: sobujang에 left_join (행 수 불변 확인) ───────────────────────────
+n_before_join <- nrow(sobujang)
 
 sobujang <- sobujang %>%
   left_join(
-    ntis_tlc,
+    ntis_firm,
     by = c("사업자번호_clean" = "사업자등록번호_clean")
   )
 
-table(sobujang$tlc)
-nrow(sobujang)
+# 행 수 검증 — join 전후 동일해야 함
+stopifnot(nrow(sobujang) == n_before_join)
+cat("join 전:", n_before_join, "/ join 후:", nrow(sobujang), "→ 행 수 불변 확인\n")
+
+# ── STEP 5: gfundvol NA → 0 처리 (통제군은 NA가 정상이므로 fund=0 기준) ───
+sobujang <- sobujang %>%
+  mutate(
+    gfundvol2020 = ifelse(is.na(gfundvol2020), 0, gfundvol2020),
+    gfundvol2021 = ifelse(is.na(gfundvol2021), 0, gfundvol2021),
+    gfundvol2022 = ifelse(is.na(gfundvol2022), 0, gfundvol2022)
+  )
+
+sobujang <- sobujang %>%
+  mutate(
+    fund2020 = ifelse(gfundvol2020 > 0, 1L, 0L),
+    fund2021 = ifelse(gfundvol2021 > 0, 1L, 0L),
+    fund2022 = ifelse(gfundvol2022 > 0, 1L, 0L)
+  )
+
+cat("fund2020 분포:\n"); print(table(sobujang$fund2020))
+cat("fund2021 분포:\n"); print(table(sobujang$fund2021))
+cat("fund2022 분포:\n"); print(table(sobujang$fund2022))
 
 
+# ── STEP 6: 신규 변수 분포 확인 ──────────────────────────────────────────────
+cat("\n=== 신규 변수 분포 확인 ===\n")
 
-#사업자 번호 매칭 
-#==============================================================================
-# NTIS 데이터 매칭 Only 2020,2021,2022
-#===============================================================================
+# 처치군/통제군 구분 후 확인
+cat("\n[tlc] 기술수명주기\n")
+print(table(sobujang$tlc, useNA="ifany"))
 
-#연도별 정부 투자 기업 목록 생성
-government_funded_2020 <- unique(ntis$사업자등록번호_clean[ntis$기준년도 == 2020 & !is.na(ntis$사업자등록번호_clean)])
-government_funded_2021 <- unique(ntis$사업자등록번호_clean[ntis$기준년도 == 2021 & !is.na(ntis$사업자등록번호_clean)])
-government_funded_2022 <- unique(ntis$사업자등록번호_clean[ntis$기준년도 == 2022 & !is.na(ntis$사업자등록번호_clean)])
+cat("\n[rd_stage] 연구개발단계 (1=기초, 2=응용, 3=개발)\n")
+print(table(sobujang$rd_stage, useNA="ifany"))
+# → 통제군은 NA 정상
+
+cat("\n[perform_type] 연구수행주체 (1=중소기업, 2=대학, 3=출연연, 4=기타)\n")
+print(table(sobujang$perform_type, useNA="ifany"))
+
+cat("\n[support_type] 지원유형 (1=자유공모, 2=품목지정, 3=하향식)\n")
+print(table(sobujang$support_type, useNA="ifany"))
+
+cat("\n[research_dur] 연구기간(년) — 처치군만\n")
+print(summary(sobujang$research_dur[!is.na(sobujang$research_dur)]))
+
+cat("\n[priv_match_rate] 민간매칭률 — 처치군만\n")
+print(summary(sobujang$priv_match_rate[!is.na(sobujang$priv_match_rate)]))
 
 
-# 정부투자여부 컬럼 추가 (1: 투자받음, 0: 투자안받음)
-sobujang$fund2020 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2020, 1, 0)
-sobujang$fund2021 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2021, 1, 0)
-sobujang$fund2022 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2022, 1, 0)
-
-# 결과 확인 (선택사항)
-table(sobujang$fund2020)
-table(sobujang$fund2021)
-table(sobujang$fund2022)
-
-# 정부투자금 
-sobujang$gfundvol2020 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2020, ntis$연구비합계, 0)
-sobujang$gfundvol2021 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2021, ntis$연구비합계, 0)
-sobujang$gfundvol2022 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2022, ntis$연구비합계, 0)
-
-# 결과 확인 (선택사항)
-table(sobujang$gfundvol2020)
-table(sobujang$gfundvol2021)
-table(sobujang$gfundvol2022)
-
-# 사업명 
-sobujang$fundname2020 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2020, ntis$사업명, 0)
-sobujang$fundname2021 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2021, ntis$사업명, 0)
-sobujang$fundname2022 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2022, ntis$사업명, 0)
-
-# 결과 확인 (선택사항)
-table(sobujang$fundname2020)
-table(sobujang$fundname2021)
-table(sobujang$fundname2022)
-
-# 부처명 
-sobujang$gov2020 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2020, ntis$부처명, 0)
-sobujang$gov2021 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2021, ntis$부처명, 0)
-sobujang$gov2022 <- ifelse(sobujang$사업자번호_clean %in% government_funded_2022, ntis$부처명, 0)
-
-# 결과 확인 (선택사항)
-table(sobujang$gov2020)
-table(sobujang$gov2021)
-table(sobujang$gov2022)
-
-#head(ntis)
 #===============================================================================
 # 펀딩 조합별 기업 수 확인
 sobujang <- sobujang %>%
@@ -208,7 +291,7 @@ cat("2022 정부 투자 받지 않은 기업:", sum(sobujang$fund2022 == 0), "\n
 merged_data <- left_join(sobujang, valuesearch, by = "사업자번호_clean")
 
 # 결과 저장
-write_xlsx(merged_data, "sobujang_integrated_with_valuesearch2.xlsx")
+#write_xlsx(merged_data, "sobujang_integrated_with_valuesearch2.xlsx")
 
 # 매칭 결과 출력
 matched <- sum(!is.na(merged_data$업체코드))
