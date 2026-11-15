@@ -641,6 +641,14 @@ merged_data <- merged_data %>%
     
   )
 
+# [20261012] 2025 재무자료 미보고 기업 → 0이 아니라 NA 유지
+merged_data <- merged_data %>%
+  mutate(
+    na25 = is.na(suppressWarnings(as.numeric(`2025/Annual S15000.자산총계`))),
+    across(c(exportamt2025, rdcost2025, pay2025, mflbcost2025, lbcost2025),
+           ~ ifelse(na25, NA_real_, .x))
+  ) %>% select(-na25)
+
 # 확인
 merged_data %>%
   summarise(

@@ -123,8 +123,10 @@ YEARS <- 2018:2025
 apply_transform <- function(x, type) {
   x <- suppressWarnings(as.numeric(x))
   switch(type,
-         "log"   = log(pmax(x, 1, na.rm=TRUE)),
-         "log1p" = log(pmax(x, 0, na.rm=TRUE) + 1),
+         #"log"   = log(pmax(x, 1, na.rm=TRUE)),
+         #"log1p" = log(pmax(x, 0, na.rm=TRUE) + 1),
+         "log"   = ifelse(is.na(x), NA, log(pmax(x, 1))),
+         "log1p" = ifelse(is.na(x), NA, log1p(pmax(x, 0))),
          "raw"   = x,
          x
   )

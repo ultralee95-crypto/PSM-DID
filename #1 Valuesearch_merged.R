@@ -1,5 +1,6 @@
 #checkin
 # 2025년 자료 통합 
+# 2025년도 자산, 채무등 결측치 2026년 10월 11일자value search 자료 업데이트 
 
 
 install.packages("readxl")      # 엑셀 읽기
@@ -39,7 +40,7 @@ valuesearch4 <- read_excel("4_ValueSearch_연구개발비_비율20260315.xlsx", 
 valuesearch5 <- read_excel("5_ValueSearch_인건비_노무비20260315.xlsx", skip = 1, col_types = "text")
 
 # 6 2025년 자료 
-valuesearch6 <- read_excel("6_VALUESearch_2025년 자료20260509.xlsx", skip = 1, col_types = "text")
+valuesearch6 <- read_excel("6_VALUESearch_2025년도_20261011.xlsx", skip = 1, col_types = "text")
 
 head(valuesearch1)
 names(valuesearch1)
